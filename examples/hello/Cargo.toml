@@ -1,0 +1,10 @@
+[package]
+name = "runes-hello"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+runes-runtime = { path = "../../crates/runes-runtime" }
+
+[workspace]

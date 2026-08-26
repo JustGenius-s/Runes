@@ -1,0 +1,15 @@
+[package]
+name = "runes-driver"
+version = "0.1.0"
+edition = "2024"
+description = "Pinned rustc driver for the native Runes backend"
+license = "MIT"
+publish = false
+
+[dependencies]
+runes-syntax = { path = "../../crates/runes-syntax" }
+
+[workspace]
+
+[package.metadata.rust-analyzer]
+rustc_private = true

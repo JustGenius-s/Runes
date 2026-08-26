@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/runes-trace",
+    "crates/runes-runtime",
+    "crates/runes-syntax",
+]
+exclude = ["compiler/runes-driver", "examples/hello"]
+resolver = "3"

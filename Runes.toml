@@ -1,0 +1,6 @@
+[syntax]
+root_marker = "rune"
+aliases = []
+
+# You can opt into a symbol without changing runtime semantics:
+# aliases = ["◇"]

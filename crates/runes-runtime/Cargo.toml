@@ -1,0 +1,9 @@
+[package]
+name = "runes-runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Native runtime marker and event sink for Runes"
+license = "MIT"
+
+[dependencies]
+runes-trace = { path = "../runes-trace" }

@@ -1,0 +1,8 @@
+[package]
+name = "runes-syntax"
+version = "0.1.0"
+edition = "2024"
+description = "Surface syntax configuration and lowering for Runes"
+license = "MIT"
+
+[dependencies]
