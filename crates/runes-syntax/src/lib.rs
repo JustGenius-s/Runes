@@ -169,6 +169,14 @@ pub fn lower_rust_source(source: &str, syntax: &SyntaxConfig) -> Result<String, 
         }
 
         if let Some(binding) = lowered {
+            let line = source[..cursor]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
+            let column = source[..cursor]
+                .rsplit_once('\n')
+                .map_or(cursor + 1, |(_, tail)| tail.chars().count() + 1);
             output.push_str(&source[copied_until..cursor]);
             output.push_str("let ");
             output.push_str(binding.name);
@@ -176,7 +184,11 @@ pub fn lower_rust_source(source: &str, syntax: &SyntaxConfig) -> Result<String, 
             output.push_str(binding.expression.trim());
             output.push_str(" }, ::runes_runtime::SourceSite::new(\"");
             output.push_str(binding.name);
-            output.push_str("\", ::core::file!(), ::core::line!(), ::core::column!()));");
+            output.push_str("\", ::core::file!(), ");
+            output.push_str(&line.to_string());
+            output.push_str(", ");
+            output.push_str(&column.to_string());
+            output.push_str("));");
             cursor = binding.end;
             copied_until = cursor;
         } else {
