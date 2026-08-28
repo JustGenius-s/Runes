@@ -180,11 +180,18 @@ pub fn lower_rust_source(source: &str, syntax: &SyntaxConfig) -> Result<String, 
             output.push_str(&source[copied_until..cursor]);
             output.push_str("let ");
             output.push_str(binding.name);
-            output.push_str(" = ::runes_runtime::mark_root({ ");
-            output.push_str(binding.expression.trim());
-            output.push_str(" }, ::runes_runtime::SourceSite::new(\"");
+            output.push_str(" = ::runes_runtime::mark_root_at(");
+            let expression = binding.expression.trim();
+            if needs_struct_braces(expression) {
+                output.push_str("{ ");
+                output.push_str(expression);
+                output.push_str(" }");
+            } else {
+                output.push_str(expression);
+            }
+            output.push_str(", \"");
             output.push_str(binding.name);
-            output.push_str("\", ::core::file!(), ");
+            output.push_str("\", ::runes_runtime::SourceSite::new(\"\", ::core::file!(), ");
             output.push_str(&line.to_string());
             output.push_str(", ");
             output.push_str(&column.to_string());
@@ -198,6 +205,32 @@ pub fn lower_rust_source(source: &str, syntax: &SyntaxConfig) -> Result<String, 
 
     output.push_str(&source[copied_until..]);
     Ok(output)
+}
+
+/// Returns whether an expression needs to be wrapped in braces before it can
+/// appear as a function argument. Only struct literals like `User { .. }` need
+/// the braces to disambiguate them from a block expression; calls, refs, and
+/// closures do not.
+fn needs_struct_braces(expression: &str) -> bool {
+    let trimmed = expression.trim();
+    let Some(open) = trimmed.find('{') else {
+        return false;
+    };
+    // The text before the first `{` must look like a path: `User`, `User::<T>`,
+    // `mod::User`, etc. A closure `|x| { .. }` or `move |x| { .. }` starts with
+    // `|` or `move`, so it is excluded by rejecting `|` and keywords here.
+    let head = &trimmed[..open];
+    if head.is_empty() {
+        return false;
+    }
+    if head.contains('|') || head.starts_with("move") {
+        return false;
+    }
+    // Reject a call or method chain ending in parentheses or a block-like
+    // expression that is not a path. We require the head to consist of
+    // identifier, `::`, whitespace, and generic punctuation only.
+    head.chars()
+        .all(|ch| ch.is_alphanumeric() || ch == '_' || ch == ':' || ch == '<' || ch == '>' || ch == ',' || ch.is_whitespace())
 }
 
 struct RuneBinding<'a> {
@@ -488,9 +521,31 @@ mod tests {
         "###;
         let lowered = lower_rust_source(source, &SyntaxConfig::default()).unwrap();
 
-        assert!(lowered.contains("let user = ::runes_runtime::mark_root"));
+        assert!(lowered.contains("let user = ::runes_runtime::mark_root_at"));
         assert!(lowered.contains("rune ignored = 1;"));
         assert!(lowered.contains("rune();"));
+    }
+
+    #[test]
+    fn braces_only_when_the_expression_is_a_struct_literal() {
+        let syntax = SyntaxConfig::default();
+
+        // Struct literal keeps the disambiguating braces.
+        let lowered = lower_rust_source(
+            "rune user = User { name: String::new() };",
+            &syntax,
+        )
+        .unwrap();
+        assert!(lowered.contains("mark_root_at({ User { name: String::new() } }, \"user\""));
+
+        // A plain call gets no wrapping braces, avoiding `unused_braces`.
+        let lowered = lower_rust_source("rune user = String::from(\"Ada\");", &syntax).unwrap();
+        assert!(lowered.contains("mark_root_at(String::from(\"Ada\"), \"user\""));
+        assert!(!lowered.contains("mark_root_at({ String::from"));
+
+        // A closure expression also stays unwrapped.
+        let lowered = lower_rust_source("rune f = |x: i32| x + 1;", &syntax).unwrap();
+        assert!(lowered.contains("mark_root_at(|x: i32| x + 1, \"f\""));
     }
 
     #[test]
@@ -500,6 +555,6 @@ mod tests {
             aliases: vec!["◇".to_owned()],
         };
         let lowered = lower_rust_source("◇ user = make_user();", &syntax).unwrap();
-        assert!(lowered.starts_with("let user = ::runes_runtime::mark_root"));
+        assert!(lowered.starts_with("let user = ::runes_runtime::mark_root_at"));
     }
 }

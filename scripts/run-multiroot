@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUNES_PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RUNES_DRIVER_DIR="$RUNES_PROJECT_DIR/compiler/runes-driver"
+RUNES_DRIVER_BIN="$RUNES_DRIVER_DIR/target/debug/runes-driver"
+RUNES_EXAMPLE_MANIFEST="$RUNES_PROJECT_DIR/examples/multiroot/Cargo.toml"
+
+(cd "$RUNES_DRIVER_DIR" && cargo build)
+RUNES_DRIVER_FINGERPRINT="$(shasum -a 256 "$RUNES_DRIVER_BIN" | cut -c1-16)"
+RUNES_RUSTFLAGS="${RUSTFLAGS:-} -C metadata=runes_${RUNES_DRIVER_FINGERPRINT}"
+
+RUNES_LOWER_KEYWORD=1 \
+RUSTC_WRAPPER="$RUNES_DRIVER_BIN" \
+RUSTFLAGS="$RUNES_RUSTFLAGS" \
+cargo +nightly run --manifest-path "$RUNES_EXAMPLE_MANIFEST"

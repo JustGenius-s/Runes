@@ -14,4 +14,8 @@ fn main() {
 
     let normalized = normalize_name(&user.name);
     println!("Hello, {normalized}");
+
+    if let Err(error) = runes_runtime::write_trace_file_default() {
+        eprintln!("failed to write trace: {error}");
+    }
 }

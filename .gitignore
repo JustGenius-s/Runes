@@ -2,3 +2,4 @@
 /compiler/*/target/
 /examples/*/target/
 trace.jsonl
+/trace.json

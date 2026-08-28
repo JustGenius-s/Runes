@@ -11,7 +11,7 @@ println!("Hello, {normalized}");
 
 `user` 的类型仍是 `User`，不会被替换成 `Tracked<User>`。所有权、生命周期、借用检查、trait 和机器码生成仍由 rustc 负责。
 
-> 当前状态：可运行的单 root MVP，用于验证语法、MIR 来源传播和原生运行时插桩；尚不是生产级追踪器。
+> 当前状态：可运行的多 root MVP，用于验证语法、MIR 来源传播和原生运行时插桩；尚不是生产级追踪器。
 
 ## 当前能力
 
@@ -19,12 +19,34 @@ println!("Hello, {normalized}");
 - 根值支持普通 Rust 可按值绑定的 `Sized` 类型，包括标量、结构体、枚举、容器、引用、闭包及 `Box<dyn Trait>`。
 - 保守追踪同一函数内的赋值、引用和字段投影。
 - 追踪依赖 root 的直接函数调用，并在被调函数内部继承追踪上下文。
-- 记录 `root`、`value.derive`、`call.enter` 和 `call.exit` 事件。
+- 记录 `root`、`value.derive`、`call.enter` 和 `call.exit` 事件，并为事件传播每个值来源的完整 root 集合。
 - 记录正常返回调用的持续时间，并提供纳秒单位的时间戳。
-- 自动打印事件，也可通过 `runes_runtime::take_trace_events()` 获取结构化 `Vec<TraceEvent>`。
+- unwind 时通过 panic hook 排空线程调用栈，为每个被跳过的调用补发 `call.exit`（`unwind=true`），事件成对完整。
+- 间接调用、动态 dispatch、新线程和 async 任务可用 `runes_runtime::current_roots()` / `with_roots(roots, f)` 手动传播追踪上下文。
+- 自动打印事件（`RUNES_PRINT=0` 关闭）；事件为结构化 `TraceEvent` 枚举，可用 `runes_runtime::take_trace_events()` 收集，或用 `write_trace_file(path)` / `write_trace_file_default()`（`RUNES_OUT` 指定路径，默认 `trace.json`）在运行结束后一次性写入 JSON，供前端绘制。
+- 事件写入线程本地无锁 ring buffer（容量 `RUNES_BUFFER_CAPACITY`，默认 4096），满时丢弃并计数；线程退出时自动归集，`overflowed_event_count()` 可查丢弃数。
 - `Runes.toml` 可以把 `rune` 换成其他标识符或单字符别名。
 
 纳秒是输出单位，不代表测量误差达到 1 ns。当前结果适合观察顺序、调用关系和耗时量级，不应直接替代严谨的性能基准。
+
+## Trace 文件格式
+
+`write_trace_file` 输出一个 JSON 文档（schema v3），事件按时间戳升序，前端可直接消费：
+
+```json
+{"schema_version":3,"overflowed_events":0,"events":[
+  {"event":"root","at_ns":125,"binding":"user","file":"src/main.rs","line":11,"column":5},
+  {"event":"call_enter","at_ns":590042,"call_id":2,"label":"normalize_name","file":"src/main.rs","line":15,"column":22,"roots":["user"]},
+  {"event":"call_exit","at_ns":625792,"call_id":2,"label":"normalize_name","roots":["user"],"duration_ns":29833,"unwind":false}
+]}
+```
+
+事件类型：
+
+- `root`：`{ at_ns, binding, file, line, column }`
+- `call_enter`：`{ at_ns, call_id, label, file, line, column, roots }`
+- `call_exit`：`{ at_ns, call_id, label, roots, duration_ns, unwind }` —— `call_id` 与 `call_enter` 配对
+- `value_derive`：`{ at_ns, value_id, label, file, line, column, roots }`
 
 ## 快速运行
 
@@ -46,7 +68,7 @@ println!("Hello, {normalized}");
 Hello, ADA LOVELACE
 ```
 
-示例业务代码没有手工调用追踪 API；事件由编译器插入的 runtime hook 产生。
+示例业务代码没有手工调用追踪 API；事件由编译器插入的 runtime hook 产生。运行结束后示例会调用 `write_trace_file_default()` 把结构化事件写入 `trace.json`（`RUNES_OUT` 可覆盖路径）。
 
 ## 工作方式
 
@@ -64,7 +86,7 @@ Runes 不重新实现完整 Rust 解析器。driver 只在 rustc 解析前把：
 rune user = make_user();
 ```
 
-降级为保持原类型的 `runes_runtime::mark_root(...)` 调用。随后 driver 覆写 rustc 的 `optimized_mir` query，在最终 MIR 中传播 shadow provenance，并拆分调用边以插入进入/退出 hook。
+降级为保持原类型的 `runes_runtime::mark_root_at(...)` 调用，并携带绑定名与源码位置。随后 driver 覆写 rustc 的 `optimized_mir` query，在最终 MIR 中传播 shadow provenance（每个 local 携带其来源的 root 集合），并拆分调用边以插入进入/退出 hook。
 
 ## 语法与配置
 
@@ -95,40 +117,40 @@ aliases = ["◇"]
 ## 当前边界
 
 - 来源分析是保守的局部 MIR 分析，尚未对每次覆写建立完整的值版本。
-- 多个 root 汇合时，runtime 暂时使用最近创建的 root 命名事件，还没有传播 root bitset。
+- 多个 root 汇合时，事件会传播并显示完整的 root 集合（`roots=[order, user]`）；集合通过 MIR 上的不动点并集传播，跨函数调用时由被调方继承。
 - 只为 rustc 能静态解析到目标的直接调用记录完整函数名；函数指针和动态 trait dispatch 尚不完整。
 - panic/unwind、`async` suspend/resume、生成器和跨线程传播尚未实现。
 - unsafe、原始指针和内部可变性可以作为 root，但其内存写入尚不能被精确建图。
 - 宏展开内部默认不插桩，避免标准库实现细节淹没业务链路。
 - driver 使用不稳定的 `rustc_private` API，需要跟随并固定 nightly 版本。
-- 当前热路径仍会直接格式化和打印日志，耗时中存在插桩扰动。
+- 事件在 ring buffer 满时会被丢弃（`overflowed_event_count()` 可查），丢弃策略是「保留旧、丢新」。
 
 ## 规划
 
 ### 1. 来源语义正确性
 
-- [ ] 为每个 shadow value 分配稳定的 `ValueId`，记录 parent、operation 和 source span。
-- [ ] 支持多个 root 的集合传播、汇合与分离。
-- [ ] 完善 move、copy、borrow、reborrow、projection、mutation 和 return 的版本化语义。
-- [ ] 为间接调用、trait dispatch、闭包和泛型单态化建立统一调用记录。
-- [ ] 为正常返回与 unwind 建立成对事件，检测不完整 span。
+- [x] 为 shadow value 分配稳定的 `value_id`（当前按源码位置 FNV-1a 派生，版本化语义待做）。
+- [x] 支持多个 root 的集合传播、汇合与继承（MIR 不动点并集 + runtime 字符串集合）。
+- [ ] 完善 move、copy、borrow、reborrow、projection、mutation 和 return 的版本化语义（侦察结论：当前 nightly 的 `mir_borrowck` query 不再暴露 `MoveData`，精确版本化需引入 `rustc_mir_dataflow` 并在优化后 body 上重建 move path，语义会弱化，暂缓）。
+- [x] 为间接调用、trait dispatch、跨线程和 async 提供运行时手动传播降级方案（`current_roots()` / `with_roots()`）。
+- [x] 为正常返回与 unwind 建立成对事件（panic hook 排空调用栈，补发 `call.exit unwind=true`），检测不完整 span 的机制待做。
 
 ### 2. 并发与异步
 
-- [ ] 将追踪上下文显式传播到新线程和任务。
+- [x] 将追踪上下文显式传播到新线程和任务（`current_roots()` / `with_roots()` 手动传播）。
 - [ ] 记录 `async` suspend/resume、任务切换与跨任务因果关系。
 - [ ] 为共享可变状态设计低成本、可解释的并发事件模型。
 
 ### 3. 低开销记录器
 
-- [ ] 用线程本地无锁 ring buffer 替代热路径直接打印。
+- [x] 用线程本地无锁 ring buffer 替代热路径直接打印（`RUNES_PRINT=0` 可关打印，`RUNES_BUFFER_CAPACITY` 控制容量）。
 - [ ] 批量写出二进制事件，提供采样、过滤和容量上限。
 - [ ] 校准空 hook 开销，同时输出原始时间与校准时间。
 - [ ] 在 release 构建中建立开销、丢事件率和时钟稳定性基准。
 
 ### 4. 查询与可视化
 
-- [ ] 稳定 trace schema，并支持 JSON/二进制导出。
+- [x] 稳定 trace schema（v3：`TraceEvent` 结构化枚举 + `write_trace_file` JSON 导出，前端可直接消费）。
 - [ ] 按 root、值、函数、源码位置和时间范围查询。
 - [ ] 展示值来源图、调用瀑布图和关键路径。
 - [ ] 提供事件过滤、脱敏和 preview 策略，避免记录敏感数据。
@@ -148,7 +170,10 @@ crates/runes-runtime    原生事件记录和 runtime hook
 crates/runes-trace      后端无关的 trace 数据结构
 compiler/runes-driver   rustc_driver、MIR 分析与插桩
 examples/hello          最小 .rs 示例
-scripts/run-hello       构建 driver 并运行示例
+examples/multiroot      多 root 汇合与继承示例
+scripts/run-hello       构建 driver 并运行 hello 示例
+scripts/run-multiroot   构建 driver 并运行多 root 示例
+scripts/test-integration 构建 driver 并断言两个示例的事件流
 ```
 
 ## 开发验证
@@ -165,4 +190,10 @@ nightly compiler driver：
 ```bash
 cd compiler/runes-driver
 cargo check
+```
+
+端到端（构建 driver 并运行示例、断言事件流）：
+
+```bash
+./scripts/test-integration
 ```

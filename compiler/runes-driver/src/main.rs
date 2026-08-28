@@ -6,7 +6,7 @@ extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_span;
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::io;
 use std::path::Path;
@@ -28,6 +28,10 @@ use rustc_middle::ty::{self, Ty, TyCtxt};
 use rustc_span::def_id::{DefId, LocalDefId};
 use rustc_span::source_map::FileLoader;
 use rustc_span::{Pos, Span, Spanned};
+
+/// A provenance set: the names of every `rune` root whose data may flow into a
+/// MIR local or call. Sorted for deterministic event output.
+type Roots = BTreeSet<String>;
 
 type OptimizedMirProvider = for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>;
 
@@ -91,67 +95,151 @@ fn u32_operand<'tcx>(tcx: TyCtxt<'tcx>, value: u32, span: Span) -> Operand<'tcx>
     }))
 }
 
-fn bool_operand<'tcx>(tcx: TyCtxt<'tcx>, value: bool, span: Span) -> Operand<'tcx> {
+fn u64_operand<'tcx>(tcx: TyCtxt<'tcx>, value: u64, span: Span) -> Operand<'tcx> {
     Operand::Constant(Box::new(ConstOperand {
         span,
         user_ty: None,
-        const_: Const::from_bool(tcx, value),
+        const_: Const::from_bits(
+            tcx,
+            value.into(),
+            ty::TypingEnv::fully_monomorphized(),
+            tcx.types.u64,
+        ),
     }))
 }
 
-struct TracedLocalUse<'a> {
-    traced: &'a HashSet<Local>,
-    found: bool,
+/// Stable per-site `value_id`: an FNV-1a hash over the source location so the
+/// same derive site maps to the same id across runs and builds. This is a
+/// placeholder identity until the versioned-value pass assigns runtime ids.
+fn site_value_id(file: &str, line: u32, column: u32) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in file.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    for byte in line.to_le_bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    for byte in column.to_le_bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
-impl<'tcx> Visitor<'tcx> for TracedLocalUse<'_> {
+/// A comma-separated `&'static str` of root names, or `""` when a value/call
+/// has no direct seed. `""` is handled by the runtime as "inherit enclosing
+/// frame roots".
+fn roots_operand<'tcx>(tcx: TyCtxt<'tcx>, roots: &Roots, span: Span) -> Operand<'tcx> {
+    str_operand(tcx, &roots_joined(roots), span)
+}
+
+fn roots_joined(roots: &Roots) -> String {
+    roots.iter().cloned().collect::<Vec<_>>().join(",")
+}
+
+/// Decodes the static `&str` literal emitted by `str_operand` (or the binding
+/// argument of `mark_root_at`) back into a `String`.
+fn static_str_literal<'tcx>(tcx: TyCtxt<'tcx>, constant: &Const<'tcx>) -> Option<String> {
+    let value = constant
+        .eval(
+            tcx,
+            ty::TypingEnv::fully_monomorphized(),
+            rustc_span::DUMMY_SP,
+        )
+        .ok()?;
+    let bytes = value.try_get_slice_bytes_for_diagnostics(tcx)?;
+    std::str::from_utf8(bytes).ok().map(str::to_owned)
+}
+
+/// The binding name recorded by the `mark_root_at` call whose second argument
+/// is the `&'static str` constant, if it is statically decodable.
+fn root_binding_name<'tcx>(tcx: TyCtxt<'tcx>, func: &Operand<'tcx>, args: &[Spanned<Operand<'tcx>>]) -> Option<String> {
+    let (def_id, _) = func.const_fn_def()?;
+    let path = tcx.def_path_str(def_id);
+    if !path.ends_with("runes_runtime::mark_root") && !path.ends_with("runes_runtime::mark_root_at") {
+        return None;
+    }
+    // `mark_root(value, site)` has no separate binding argument; the binding
+    // travels inside `site.binding`. Only the lowered form carries a name.
+    if path.ends_with("runes_runtime::mark_root") {
+        return None;
+    }
+    let binding = args.get(1)?;
+    let Operand::Constant(constant) = &binding.node else {
+        return None;
+    };
+    static_str_literal(tcx, &constant.const_)
+}
+
+struct RootsCollectingVisitor<'a> {
+    traced: &'a HashMap<Local, Roots>,
+    roots: &'a mut Roots,
+}
+
+impl<'tcx> Visitor<'tcx> for RootsCollectingVisitor<'_> {
     fn visit_local(&mut self, local: Local, _context: PlaceContext, _location: Location) {
-        self.found |= self.traced.contains(&local);
+        if let Some(roots) = self.traced.get(&local) {
+            self.roots.extend(roots.iter().cloned());
+        }
     }
 }
 
-fn rvalue_uses_traced<'tcx>(rvalue: &Rvalue<'tcx>, traced: &HashSet<Local>) -> bool {
-    let mut visitor = TracedLocalUse {
+fn rvalue_roots<'tcx>(rvalue: &Rvalue<'tcx>, traced: &HashMap<Local, Roots>) -> Roots {
+    let mut roots = Roots::new();
+    RootsCollectingVisitor {
         traced,
-        found: false,
-    };
-    visitor.visit_rvalue(
+        roots: &mut roots,
+    }
+    .visit_rvalue(
         rvalue,
         Location {
             block: rustc_middle::mir::START_BLOCK,
             statement_index: 0,
         },
     );
-    visitor.found
+    roots
 }
 
-fn operand_uses_traced(operand: &Operand<'_>, traced: &HashSet<Local>) -> bool {
-    operand
-        .place()
-        .is_some_and(|place| traced.contains(&place.local))
+fn operand_roots(operand: &Operand<'_>, traced: &HashMap<Local, Roots>) -> Roots {
+    let Some(place) = operand.place() else {
+        return Roots::new();
+    };
+    traced.get(&place.local).cloned().unwrap_or_default()
 }
 
-fn is_root_marker(tcx: TyCtxt<'_>, func: &Operand<'_>) -> bool {
-    func.const_fn_def().is_some_and(|(def_id, _)| {
-        tcx.def_path_str(def_id)
-            .ends_with("runes_runtime::mark_root")
-    })
+fn merge_roots(target: &mut Roots, source: &Roots) -> bool {
+    let before = target.len();
+    target.extend(source.iter().cloned());
+    target.len() != before
 }
 
-fn traced_call_seeds(tcx: TyCtxt<'_>, body: &Body<'_>) -> Vec<bool> {
-    let mut traced = HashSet::new();
-    let mut seeds = vec![false; body.basic_blocks.len()];
+/// Fixed-point provenance propagation over the MIR body.
+///
+/// `mark_root_at` (and `mark_root`) calls seed their destination local with the
+/// decoded binding name; every assignment, call destination, and call argument
+/// then merges the union of its source locals' root sets until quiescence.
+/// Returns the final root set per local and, for every traced call, its root set.
+fn propagate_roots<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &Body<'tcx>,
+) -> (HashMap<Local, Roots>, HashMap<usize, Roots>) {
+    let mut local_roots: HashMap<Local, Roots> = HashMap::new();
+    let mut call_roots: HashMap<usize, Roots> = HashMap::new();
     let mut changed = true;
 
     while changed {
         changed = false;
         for (block_index, block) in body.basic_blocks.iter().enumerate() {
             for statement in &block.statements {
-                if let rustc_middle::mir::StatementKind::Assign(assignment) = &statement.kind {
-                    let (destination, rvalue) = &**assignment;
-                    if rvalue_uses_traced(rvalue, &traced) {
-                        changed |= traced.insert(destination.local);
-                    }
+                let rustc_middle::mir::StatementKind::Assign(assignment) = &statement.kind else {
+                    continue;
+                };
+                let (destination, rvalue) = &**assignment;
+                let roots = rvalue_roots(rvalue, &local_roots);
+                if merge_roots(local_roots.entry(destination.local).or_default(), &roots) {
+                    changed = true;
                 }
             }
 
@@ -167,20 +255,30 @@ fn traced_call_seeds(tcx: TyCtxt<'_>, body: &Body<'_>) -> Vec<bool> {
             else {
                 continue;
             };
-            if is_root_marker(tcx, func) {
-                changed |= traced.insert(destination.local);
+            if let Some(binding) = root_binding_name(tcx, func, args) {
+                let mut roots = Roots::new();
+                roots.insert(binding);
+                if merge_roots(local_roots.entry(destination.local).or_default(), &roots) {
+                    changed = true;
+                }
                 continue;
             }
-            let seed = args
-                .iter()
-                .any(|argument| operand_uses_traced(&argument.node, &traced));
-            if seed {
-                seeds[block_index] = true;
-                changed |= traced.insert(destination.local);
+            let mut roots = Roots::new();
+            for argument in args {
+                roots.extend(operand_roots(&argument.node, &local_roots));
+            }
+            if !roots.is_empty() {
+                call_roots
+                    .entry(block_index)
+                    .or_default()
+                    .extend(roots.iter().cloned());
+            }
+            if merge_roots(local_roots.entry(destination.local).or_default(), &roots) {
+                changed = true;
             }
         }
     }
-    seeds
+    (local_roots, call_roots)
 }
 
 #[derive(Debug)]
@@ -189,67 +287,36 @@ struct DerivedAssignment {
     statement_index: usize,
     label: String,
     span: Span,
+    roots: Roots,
 }
 
-fn traced_assignments(tcx: TyCtxt<'_>, body: &Body<'_>) -> Vec<DerivedAssignment> {
-    let mut traced = HashSet::new();
-    let mut derived = HashSet::new();
-    let mut changed = true;
+fn traced_assignments<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>) -> Vec<DerivedAssignment> {
+    let (local_roots, _) = propagate_roots(tcx, body);
+    let mut assignments = Vec::new();
 
-    while changed {
-        changed = false;
-        for (block_index, block) in body.basic_blocks.iter().enumerate() {
-            for (statement_index, statement) in block.statements.iter().enumerate() {
-                if let rustc_middle::mir::StatementKind::Assign(assignment) = &statement.kind {
-                    let (destination, rvalue) = &**assignment;
-                    if rvalue_uses_traced(rvalue, &traced) {
-                        derived.insert((block_index, statement_index));
-                        changed |= traced.insert(destination.local);
-                    }
-                }
-            }
-            let Some(terminator) = &block.terminator else {
-                continue;
-            };
-            let TerminatorKind::Call {
-                func,
-                args,
-                destination,
-                ..
-            } = &terminator.kind
-            else {
-                continue;
-            };
-            if is_root_marker(tcx, func)
-                || args
-                    .iter()
-                    .any(|argument| operand_uses_traced(&argument.node, &traced))
-            {
-                changed |= traced.insert(destination.local);
-            }
-        }
-    }
-
-    let mut assignments = derived
-        .into_iter()
-        .filter_map(|(block_index, statement_index)| {
-            let block = rustc_middle::mir::BasicBlock::from_usize(block_index);
-            let statement = body.basic_blocks[block].statements.get(statement_index)?;
+    for (block_index, block) in body.basic_blocks.iter().enumerate() {
+        for (statement_index, statement) in block.statements.iter().enumerate() {
             if statement.source_info.span.from_expansion() {
-                return None;
+                continue;
             }
             let rustc_middle::mir::StatementKind::Assign(assignment) = &statement.kind else {
-                return None;
+                continue;
             };
             let (destination, rvalue) = &**assignment;
-            Some(DerivedAssignment {
+            let roots = rvalue_roots(rvalue, &local_roots);
+            if roots.is_empty() {
+                continue;
+            }
+            assignments.push(DerivedAssignment {
                 block_index,
                 statement_index,
                 label: format!("{destination:?} <- {rvalue:?}"),
                 span: statement.source_info.span,
-            })
-        })
-        .collect::<Vec<_>>();
+                roots,
+            });
+        }
+    }
+
     assignments.sort_by_key(|assignment| {
         (
             assignment.block_index,
@@ -317,7 +384,15 @@ fn instrument_assignments<'tcx>(tcx: TyCtxt<'tcx>, body: &mut Body<'tcx>, derive
                         span: assignment.span,
                     },
                     Spanned {
-                        node: bool_operand(tcx, true, assignment.span),
+                        node: roots_operand(tcx, &assignment.roots, assignment.span),
+                        span: assignment.span,
+                    },
+                    Spanned {
+                        node: u64_operand(
+                            tcx,
+                            site_value_id(&file, line, column),
+                            assignment.span,
+                        ),
                         span: assignment.span,
                     },
                 ]
@@ -339,10 +414,10 @@ fn instrument_calls<'tcx>(
     enter_hook: DefId,
     exit_hook: DefId,
 ) {
-    let seeds = traced_call_seeds(tcx, body);
+    let (_, call_roots) = propagate_roots(tcx, body);
     if std::env::var_os("RUNES_DEBUG_INSTRUMENT").is_some() {
         eprintln!(
-            "RUNES_INSTRUMENT {} seeds={seeds:?}",
+            "RUNES_INSTRUMENT {} call_roots={call_roots:?}",
             tcx.def_path_str(body.source.def_id())
         );
     }
@@ -413,6 +488,7 @@ fn instrument_calls<'tcx>(
             attributes: Default::default(),
         });
 
+        let roots = call_roots.get(&block_index).cloned().unwrap_or_default();
         body.basic_blocks_mut()[block].terminator = Some(Terminator {
             source_info,
             kind: TerminatorKind::Call {
@@ -435,7 +511,7 @@ fn instrument_calls<'tcx>(
                         span,
                     },
                     Spanned {
-                        node: bool_operand(tcx, seeds[block_index], span),
+                        node: roots_operand(tcx, &roots, span),
                         span,
                     },
                 ]
@@ -516,7 +592,7 @@ impl Callbacks for RunesCallbacks {
                         };
                         if tcx
                             .def_path_str(callee)
-                            .ends_with("runes_runtime::mark_root")
+                            .ends_with("runes_runtime::mark_root_at")
                         {
                             eprintln!(
                                 "RUNES_ROOT {} at {:?}",
