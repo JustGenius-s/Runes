@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Runes Trace Viewer</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e11;
+    --surface: #12161c;
+    --surface-2: #171c23;
+    --border: #1f2730;
+    --border-soft: #1a222b;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --faint: #59636e;
+    --accent: #58a6ff;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.5 var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 52px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .brand .name {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .brand .name .r { color: var(--accent); }
+  .brand .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 2px;
+  }
+  .tabs button {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: 13px var(--sans);
+    font-weight: 500;
+    padding: 5px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color .12s, background .12s;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.active { background: var(--accent); color: #06101d; }
+
+  .spacer { flex: 1; }
+
+  .btn-open {
+    font: 13px var(--sans);
+    font-weight: 500;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .btn-open:hover { border-color: var(--faint); background: #1d242d; }
+  .hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  /* ---------- info / legend ---------- */
+  .statusbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .statusbar .stat b { color: var(--text); font-weight: 600; }
+  .legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .legend .item { display: flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .legend .swatch { width: 9px; height: 9px; border-radius: 2px; }
+
+  /* ---------- charts ---------- */
+  .stage { padding: 12px 16px; }
+  .chart-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .chart-head h2 {
+    font: 13px var(--sans);
+    font-weight: 600;
+    margin: 0;
+    color: var(--text);
+  }
+  .chart-head .desc { font: 12px var(--mono); color: var(--faint); }
+  .canvas-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    overflow: hidden;
+    position: relative;
+  }
+  canvas { display: block; }
+
+  /* ---------- empty state ---------- */
+  .empty {
+    position: fixed;
+    inset: 52px 0 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .empty .card {
+    max-width: 440px;
+    text-align: center;
+    padding: 44px 40px;
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+  }
+  .empty .glyph {
+    width: 40px; height: 40px;
+    margin: 0 auto 16px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent);
+    font-family: var(--mono); font-size: 16px;
+  }
+  .empty h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+  .empty p { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+  .empty code {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    background: var(--surface-2); border: 1px solid var(--border-soft);
+    padding: 1px 5px; border-radius: 4px;
+  }
+
+  /* ---------- tooltip ---------- */
+  #tooltip {
+    position: fixed;
+    display: none;
+    min-width: 220px;
+    max-width: 460px;
+    background: #161b22;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 8px 28px rgba(0,0,0,.55);
+  }
+  #tooltip .tt-fn { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: #fff; word-break: break-all; }
+  #tooltip .tt-row { color: var(--muted); line-height: 1.7; }
+  #tooltip .tt-row b { color: var(--text); font-weight: 500; }
+  #tooltip .tt-roots { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  #tooltip .tt-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--surface-2); border: 1px solid var(--border-soft);
+    border-radius: 4px; padding: 1px 6px; color: var(--text);
+  }
+  #tooltip .tt-chip i { width: 8px; height: 8px; border-radius: 2px; }
+
+  /* ---------- drop overlay ---------- */
+  #drop {
+    position: fixed; inset: 52px 0 0 0;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(11,14,17,.82);
+    backdrop-filter: blur(2px);
+    z-index: 50;
+  }
+  #drop.show { display: flex; }
+  #drop .box {
+    border: 1.5px dashed var(--accent);
+    border-radius: 14px;
+    padding: 48px 72px;
+    font: 15px var(--mono);
+    color: var(--accent);
+    background: var(--surface);
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="name"><span class="r">R</span>unes&nbsp;Trace</span>
+    <span class="tag">schema v3</span>
+  </div>
+
+  <div class="tabs">
+    <button id="btnFlame" class="active">火焰图</button>
+    <button id="btnGantt">甘特图</button>
+  </div>
+
+  <div class="spacer"></div>
+  <span class="hint">滚轮缩放 · 拖拽平移 · 双击复位</span>
+  <button class="btn-open" id="btnOpen">打开 trace.json</button>
+  <input type="file" id="file" accept=".json,application/json" hidden />
+</header>
+
+<div id="drop"><div class="box">松开以载入 trace.json</div></div>
+
+<div class="empty" id="empty">
+  <div class="card">
+    <div class="glyph">≡</div>
+    <h3>还没有 trace 数据</h3>
+    <p>把 <code>trace.json</code> 拖进页面，</p>
+    <p>或点击右上角「打开 trace.json」。</p>
+    <p style="margin-top:12px;color:var(--faint)">运行示例后在当前目录生成，<code>RUNES_OUT</code> 可覆盖路径。</p>
+  </div>
+</div>
+
+<div class="statusbar" id="statusbar" style="display:none">
+  <span class="stat"><b id="stEvents">0</b> events</span>
+  <span class="stat"><b id="stCalls">0</b> calls</span>
+  <span class="stat"><b id="stSpan">0</b> span</span>
+  <div class="legend" id="legend"></div>
+</div>
+
+<div class="stage" id="content" style="display:none">
+  <div id="flameChart">
+    <div class="chart-head">
+      <h2>火焰图</h2>
+      <span class="desc">x 时间 · y 调用深度 · 条宽 = 耗时</span>
+    </div>
+    <div class="canvas-wrap"><canvas id="flame"></canvas></div>
+  </div>
+  <div id="ganttChart" style="display:none">
+    <div class="chart-head">
+      <h2>甘特图</h2>
+      <span class="desc">纵轴 root 泳道 · 横轴时间 · 每条事件一个条</span>
+    </div>
+    <div class="canvas-wrap"><canvas id="gantt"></canvas></div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const fileInput = $("file");
+const tooltip = $("tooltip");
+const flameCanvas = $("flame");
+const ganttCanvas = $("gantt");
+
+const state = {
+  events: [], spans: [], roots: [],
+  minNs: 0, maxNs: 1,
+  viewStart: 0, viewEnd: 1,
+  mode: "flame",
+};
+let hover = null;
+
+/* ---------- palette: categorical, muted, readable on dark ---------- */
+const PALETTE = [
+  "#f6c445", "#58a6ff", "#7ee787", "#f0883e", "#d2a8ff",
+  "#ff7b72", "#39c5cf", "#ffa657", "#a5d6ff", "#ffb3d9",
+];
+function rootColor(root) {
+  const idx = state.roots.indexOf(root);
+  return idx < 0 ? "#3a4552" : PALETTE[idx % PALETTE.length];
+}
+function mix(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
+}
+function textOn(hex) {
+  // gold / amber / light colors get dark text; others get light text.
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  const lum = 0.299*r + 0.587*g + 0.114*b;
+  return lum > 170 ? "#0b0e11" : "#f2f7fc";
+}
+
+/* ---------- load + build tree ---------- */
+function loadEvents(events) {
+  state.events = events;
+  const rootSet = new Set();
+  for (const ev of events) if (ev.event === "root") rootSet.add(ev.binding);
+  state.roots = Array.from(rootSet);
+
+  const open = new Map();
+  const spans = [];
+  for (const ev of events) {
+    if (ev.event === "call_enter") {
+      const span = {
+        call_id: ev.call_id, label: ev.label, file: ev.file, line: ev.line, column: ev.column,
+        roots: ev.roots || [], start: ev.at_ns, end: null, duration: 0,
+        unwind: false, depth: 0, parent: null, children: [],
+      };
+      open.set(ev.call_id, span); spans.push(span);
+    } else if (ev.event === "call_exit") {
+      const span = open.get(ev.call_id);
+      if (!span) continue;
+      span.end = ev.at_ns;
+      span.duration = ev.duration_ns != null ? ev.duration_ns : Math.max(0, ev.at_ns - span.start);
+      span.unwind = !!ev.unwind;
+      open.delete(ev.call_id);
+    }
+  }
+  for (const s of spans) if (s.end == null) { s.end = s.start; s.duration = 0; }
+
+  const stack = [];
+  spans.sort((a, b) => a.start - b.start || b.end - a.end);
+  for (const s of spans) {
+    while (stack.length && stack[stack.length - 1].end <= s.start) stack.pop();
+    s.parent = stack.length ? stack[stack.length - 1] : null;
+    s.depth = stack.length;
+    if (s.parent) s.parent.children.push(s);
+    stack.push(s);
+  }
+  state.spans = spans;
+
+  if (events.length) {
+    state.minNs = Math.min(...events.map((e) => e.at_ns));
+    state.maxNs = Math.max(...events.map((e) => e.at_ns)) + 1;
+  } else {
+    state.minNs = 0; state.maxNs = 1;
+  }
+  resetView();
+
+  $("stEvents").textContent = events.length;
+  $("stCalls").textContent = spans.length;
+  $("stSpan").textContent = fmtNs(state.maxNs - state.minNs);
+  renderLegend();
+}
+
+function renderLegend() {
+  const el = $("legend");
+  el.innerHTML = state.roots.map((r) =>
+    `<span class="item"><span class="swatch" style="background:${rootColor(r)}"></span>${escapeHtml(r)}</span>`
+  ).join("");
+}
+
+/* ---------- view / zoom ---------- */
+function resetView() {
+  state.viewStart = state.minNs;
+  state.viewEnd = state.maxNs;
+}
+function clampView() {
+  const total = state.maxNs - state.minNs;
+  const minSpan = total * 0.0005;
+  let span = state.viewEnd - state.viewStart;
+  if (span < minSpan) {
+    const c = (state.viewStart + state.viewEnd) / 2;
+    state.viewStart = c - minSpan / 2;
+    state.viewEnd = c + minSpan / 2;
+    span = minSpan;
+  }
+  if (state.viewStart < state.minNs) {
+    state.viewStart = state.minNs; state.viewEnd = state.minNs + span;
+  }
+  if (state.viewEnd > state.maxNs) {
+    state.viewEnd = state.maxNs; state.viewStart = state.maxNs - span;
+  }
+}
+function zoomAt(factor, anchorX) {
+  const span = state.viewEnd - state.viewStart;
+  const anchorNs = state.viewStart + anchorX * span;
+  const newSpan = span * factor;
+  state.viewStart = anchorNs - anchorX * newSpan;
+  state.viewEnd = anchorNs + (1 - anchorX) * newSpan;
+  clampView();
+  render();
+}
+function panBy(deltaNs) {
+  state.viewStart += deltaNs;
+  state.viewEnd += deltaNs;
+  clampView();
+  render();
+}
+
+/* ---------- formatting ---------- */
+function fmtNs(ns) {
+  if (ns < 1000) return ns + " ns";
+  if (ns < 1e6) return (ns / 1e3).toFixed(1) + " µs";
+  if (ns < 1e9) return (ns / 1e6).toFixed(2) + " ms";
+  return (ns / 1e9).toFixed(3) + " s";
+}
+
+function setupCanvas(canvas, width, height) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.style.width = width + "px";
+  canvas.style.height = height + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+/* ---------- flame graph ---------- */
+function renderFlame() {
+  const wrap = flameCanvas.parentElement;
+  const W = Math.max(400, wrap.clientWidth);
+  const ROW = 20, GAP = 1, RULER = 26, BOTTOM = 10;
+  const maxDepth = state.spans.reduce((m, s) => Math.max(m, s.depth), 0);
+  const H = RULER + (maxDepth + 1) * (ROW + GAP) + BOTTOM;
+  const ctx = setupCanvas(flameCanvas, W, H);
+  ctx.clearRect(0, 0, W, H);
+
+  const vs = state.viewStart, ve = state.viewEnd;
+  const x = (ns) => (ns - vs) / (ve - vs) * W;
+
+  // ruler
+  ctx.fillStyle = "#0d1117";
+  ctx.fillRect(0, 0, W, RULER);
+  ctx.strokeStyle = "#1a222b";
+  ctx.beginPath(); ctx.moveTo(0, RULER + .5); ctx.lineTo(W, RULER + .5); ctx.stroke();
+
+  ctx.font = "11px ui-monospace, SF Mono, Menlo, monospace";
+  const ticks = 12;
+  for (let i = 0; i <= ticks; i++) {
+    const px = Math.round(i / ticks * W) + .5;
+    const ns = vs + (ve - vs) * i / ticks;
+    ctx.strokeStyle = "#1f2730";
+    ctx.beginPath(); ctx.moveTo(px, RULER - 8); ctx.lineTo(px, RULER); ctx.stroke();
+    ctx.fillStyle = "#59636e";
+    const label = fmtNs(ns - state.minNs);
+    ctx.fillText(label, Math.min(px + 3, W - label.length * 6.6 - 3), 15);
+  }
+
+  // spans
+  for (const span of state.spans) {
+    if (span.duration <= 0) continue;
+    const px = x(span.start);
+    const pw = Math.max(1, x(span.end) - x(span.start));
+    if (px > W || px + pw < 0) continue;
+    const py = RULER + span.depth * (ROW + GAP);
+    const color = span.roots.length ? rootColor(span.roots[0]) : "#3a4552";
+    ctx.fillStyle = mix(color, 0.9);
+    ctx.fillRect(px, py, Math.max(0.6, pw - 0.6), ROW);
+
+    // label
+    if (pw > 26) {
+      ctx.font = "11px ui-monospace, SF Mono, Menlo, monospace";
+      ctx.fillStyle = textOn(color);
+      ctx.fillText(span.label, px + 4, py + ROW - 6, Math.max(0, pw - 8));
+    }
+  }
+
+  // subtle depth guide lines
+  ctx.strokeStyle = "rgba(31,39,48,0.4)";
+  for (let d = 0; d <= maxDepth + 1; d++) {
+    const y = RULER + d * (ROW + GAP) - 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  bindInteraction(flameCanvas, W, H, x, (mx, my) => {
+    const depth = Math.floor((my - RULER) / (ROW + GAP));
+    for (const span of state.spans) {
+      if (span.depth !== depth) continue;
+      if (mx >= x(span.start) && mx <= x(span.end) && span.duration > 0) return span;
+    }
+    return null;
+  });
+}
+
+/* ---------- gantt ---------- */
+function renderGantt() {
+  const wrap = ganttCanvas.parentElement;
+  const W = Math.max(400, wrap.clientWidth);
+  const ROW = 24, GAP = 5, RULER = 26, LABEL_W = 150, BOTTOM = 10;
+  const lanes = state.roots.length ? state.roots.slice() : ["(无 root)"];
+  const H = RULER + lanes.length * (ROW + GAP) + BOTTOM;
+  const ctx = setupCanvas(ganttCanvas, W, H);
+  ctx.clearRect(0, 0, W, H);
+
+  const vs = state.viewStart, ve = state.viewEnd;
+  const x = (ns) => LABEL_W + (ns - vs) / (ve - vs) * (W - LABEL_W);
+  const laneY = (i) => RULER + i * (ROW + GAP);
+
+  // ruler (over chart area only)
+  ctx.fillStyle = "#0d1117";
+  ctx.fillRect(LABEL_W, 0, W - LABEL_W, RULER);
+  ctx.fillStyle = "#0d1117";
+  ctx.fillRect(0, 0, LABEL_W, H);
+
+  ctx.font = "11px ui-monospace, SF Mono, Menlo, monospace";
+  const ticks = 12;
+  for (let i = 0; i <= ticks; i++) {
+    const px = Math.round(LABEL_W + i / ticks * (W - LABEL_W)) + .5;
+    const ns = vs + (ve - vs) * i / ticks;
+    ctx.strokeStyle = "#1f2730";
+    ctx.beginPath(); ctx.moveTo(px, RULER - 8); ctx.lineTo(px, RULER); ctx.stroke();
+    ctx.fillStyle = "#59636e";
+    ctx.fillText(fmtNs(ns - state.minNs), Math.min(px + 3, W - 4), 15);
+  }
+  ctx.strokeStyle = "#1a222b";
+  ctx.beginPath(); ctx.moveTo(0, RULER + .5); ctx.lineTo(W, RULER + .5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(LABEL_W + .5, 0); ctx.lineTo(LABEL_W + .5, H); ctx.stroke();
+
+  // lanes
+  const spansByLane = lanes.map(() => []);
+  for (const span of state.spans) {
+    if (span.duration <= 0) continue;
+    const roots = span.roots && span.roots.length ? span.roots : [];
+    if (!roots.length) {
+      const idx = lanes.indexOf("(无 root)");
+      if (idx >= 0) spansByLane[idx].push(span);
+      continue;
+    }
+    for (const r of roots) {
+      const idx = lanes.indexOf(r);
+      if (idx >= 0) spansByLane[idx].push(span);
+    }
+  }
+
+  lanes.forEach((root, i) => {
+    const y = laneY(i);
+    const color = rootColor(root);
+    ctx.font = "11px ui-monospace, SF Mono, Menlo, monospace";
+    ctx.fillStyle = "#9fb0c3";
+    ctx.fillText(root, 12, y + ROW - 8, LABEL_W - 20);
+    // lane background band
+    if (i % 2 === 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.015)";
+      ctx.fillRect(LABEL_W, y - Math.ceil(GAP / 2), W - LABEL_W, ROW + GAP);
+    }
+    for (const span of spansByLane[i]) {
+      const px = x(span.start);
+      const pw = Math.max(1.5, x(span.end) - x(span.start));
+      if (px > W || px + pw < LABEL_W) continue;
+      ctx.fillStyle = mix(color, 0.9);
+      ctx.fillRect(px, y, Math.max(1, pw - 1), ROW);
+      if (pw > 26) {
+        ctx.font = "10.5px ui-monospace, SF Mono, Menlo, monospace";
+        ctx.fillStyle = textOn(color);
+        ctx.fillText(span.label, px + 4, y + ROW - 8, Math.max(0, pw - 8));
+      }
+    }
+  });
+
+  bindInteraction(ganttCanvas, W, H, x, (mx, my) => {
+    if (mx < LABEL_W) return null;
+    const laneIdx = Math.floor((my - RULER) / (ROW + GAP));
+    if (laneIdx < 0 || laneIdx >= lanes.length) return null;
+    for (const span of spansByLane[laneIdx]) {
+      if (mx >= x(span.start) && mx <= x(span.end)) return span;
+    }
+    return null;
+  });
+}
+
+/* ---------- shared zoom/pan interaction ---------- */
+function bindInteraction(canvas, W, H, x, hitTest) {
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width * W;
+    const my = (e.clientY - rect.top) / rect.height * H;
+    hover = hitTest(mx, my);
+    showTooltip(e, hover);
+  };
+  canvas.onmouseleave = () => { hover = null; tooltip.style.display = "none"; };
+
+  canvas.onwheel = (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width * W;
+    const anchorX = mx / W;
+    const factor = e.deltaY < 0 ? 0.8 : 1.25;
+    zoomAt(factor, anchorX);
+  };
+
+  let dragging = false, lastX = 0;
+  canvas.onmousedown = (e) => {
+    dragging = true; lastX = e.clientX;
+    canvas.style.cursor = "grabbing";
+    e.preventDefault();
+  };
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    lastX = e.clientX;
+    const rect = canvas.getBoundingClientRect();
+    const span = state.viewEnd - state.viewStart;
+    panBy(-dx / rect.width * span);
+  });
+  window.addEventListener("mouseup", () => {
+    if (dragging) { dragging = false; canvas.style.cursor = "default"; }
+  });
+  canvas.ondblclick = () => { resetView(); render(); };
+}
+
+/* ---------- tooltip ---------- */
+function showTooltip(e, span) {
+  if (!span) { tooltip.style.display = "none"; return; }
+  const chips = (span.roots || []).map((r) =>
+    `<span class="tt-chip"><i style="background:${rootColor(r)}"></i>${escapeHtml(r)}</span>`).join("");
+  tooltip.innerHTML =
+    `<div class="tt-fn">${escapeHtml(span.label)}</div>` +
+    `<div class="tt-row"><b>${escapeHtml(span.file || "?")}:${span.line || "?"}:${span.column || "?"}</b></div>` +
+    `<div class="tt-row">开始 <b>+${fmtNs(span.start - state.minNs)}</b> · 耗时 <b>${fmtNs(span.duration)}</b>${span.unwind ? " · <b>unwind</b>" : ""}</div>` +
+    `<div class="tt-roots">${chips}</div>`;
+  tooltip.style.display = "block";
+  const pad = 14;
+  let left = e.clientX + pad, top = e.clientY + pad;
+  const rect = tooltip.getBoundingClientRect();
+  if (left + rect.width > window.innerWidth) left = e.clientX - rect.width - pad;
+  if (top + rect.height > window.innerHeight) top = e.clientY - rect.height - pad;
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
+}
+
+/* ---------- render ---------- */
+function render() {
+  if (!state.events.length) return;
+  if (state.mode === "flame") renderFlame();
+  else renderGantt();
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  $("btnFlame").classList.toggle("active", mode === "flame");
+  $("btnGantt").classList.toggle("active", mode === "gantt");
+  $("flameChart").style.display = mode === "flame" ? "block" : "none";
+  $("ganttChart").style.display = mode === "gantt" ? "block" : "none";
+  render();
+}
+
+/* ---------- file handling ---------- */
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const json = JSON.parse(reader.result);
+      const events = Array.isArray(json) ? json : (json.events || []);
+      if (!events.length) { alert("trace 文件里没有事件"); return; }
+      loadEvents(events);
+      $("empty").style.display = "none";
+      $("statusbar").style.display = "flex";
+      $("content").style.display = "block";
+      setMode(state.mode);
+    } catch (err) {
+      alert("解析 trace.json 失败：" + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- events ---------- */
+$("btnOpen").onclick = () => fileInput.click();
+fileInput.onchange = () => handleFile(fileInput.files[0]);
+$("btnFlame").onclick = () => setMode("flame");
+$("btnGantt").onclick = () => setMode("gantt");
+window.addEventListener("resize", render);
+
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").classList.add("show"); });
+window.addEventListener("dragleave", (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; $("drop").classList.remove("show"); } });
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $("drop").classList.remove("show");
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+</script>
+</body>
+</html>

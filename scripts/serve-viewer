@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Serve the single-file viewer and trace.json from the project root.
+# python3 is used for a dependency-free static server.
+RUNES_PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PORT="${RUNES_VIEWER_PORT:-8642}"
+
+echo "serving ${RUNES_PROJECT_DIR} at http://127.0.0.1:${PORT}/viewer.html"
+cd "$RUNES_PROJECT_DIR"
+exec python3 -m http.server "$PORT"

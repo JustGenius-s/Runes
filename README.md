@@ -48,6 +48,17 @@ println!("Hello, {normalized}");
 - `call_exit`：`{ at_ns, call_id, label, roots, duration_ns, unwind }` —— `call_id` 与 `call_enter` 配对
 - `value_derive`：`{ at_ns, value_id, label, file, line, column, roots }`
 
+## 可视化
+
+仓库自带一个零依赖的单文件 viewer（`viewer.html`），把 `trace.json` 拖进页面即可渲染**火焰图**（调用栈按时间展开）和**甘特时间线**（按 root 着色）：
+
+```bash
+./scripts/serve-viewer          # 启动静态服务器，默认端口 8642
+# 打开 http://127.0.0.1:8642/viewer.html
+```
+
+也可以直接双击 `viewer.html`（`file://` 下拖拽导入同样可用）。两种视图都按 root 自动配色，悬停显示函数、源码位置、耗时与 root 集合。
+
 ## 快速运行
 
 项目需要 Rust nightly、`rustc-dev`、`rust-src` 和 `llvm-tools-preview`。compiler 目录中的 `rust-toolchain.toml` 会选择所需工具链。
@@ -171,8 +182,10 @@ crates/runes-trace      后端无关的 trace 数据结构
 compiler/runes-driver   rustc_driver、MIR 分析与插桩
 examples/hello          最小 .rs 示例
 examples/multiroot      多 root 汇合与继承示例
+viewer.html             零依赖 trace 可视化（火焰图 + 甘特图）
 scripts/run-hello       构建 driver 并运行 hello 示例
 scripts/run-multiroot   构建 driver 并运行多 root 示例
+scripts/serve-viewer    启动 viewer 静态服务器
 scripts/test-integration 构建 driver 并断言两个示例的事件流
 ```
 
