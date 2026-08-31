@@ -291,6 +291,7 @@ const ganttCanvas = $("gantt");
 
 const state = {
   events: [], spans: [], roots: [],
+  rootMarkers: [], deriveMarkers: [],
   minNs: 0, maxNs: 1,
   viewStart: 0, viewEnd: 1,
   mode: "flame",
@@ -322,7 +323,23 @@ function textOn(hex) {
 function loadEvents(events) {
   state.events = events;
   const rootSet = new Set();
-  for (const ev of events) if (ev.event === "root") rootSet.add(ev.binding);
+  state.rootMarkers = [];
+  state.deriveMarkers = [];
+  for (const ev of events) {
+    if (ev.event === "root") {
+      rootSet.add(ev.binding);
+      state.rootMarkers.push({
+        binding: ev.binding, at_ns: ev.at_ns,
+        file: ev.file, line: ev.line, column: ev.column,
+      });
+    } else if (ev.event === "value_derive") {
+      state.deriveMarkers.push({
+        label: ev.label, at_ns: ev.at_ns,
+        file: ev.file, line: ev.line, column: ev.column,
+        roots: ev.roots || [], value_id: ev.value_id,
+      });
+    }
+  }
   state.roots = Array.from(rootSet);
 
   const open = new Map();
@@ -492,11 +509,49 @@ function renderFlame() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
 
+  // root initialization markers: a vertical tick through the flame stack
+  for (const m of state.rootMarkers) {
+    const px = x(m.at_ns);
+    if (px < -2 || px > W + 2) continue;
+    const color = rootColor(m.binding);
+    ctx.strokeStyle = mix(color, 0.85);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(px, RULER); ctx.lineTo(px, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // diamond at the top of the marker
+    ctx.fillStyle = color;
+    const sy = RULER + 2;
+    ctx.beginPath();
+    ctx.moveTo(px, sy - 4); ctx.lineTo(px + 3.5, sy); ctx.lineTo(px, sy + 4); ctx.lineTo(px - 3.5, sy);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // value_derive markers: small dots at the source line
+  for (const m of state.deriveMarkers) {
+    const px = x(m.at_ns);
+    if (px < -2 || px > W + 2) continue;
+    const color = m.roots.length ? rootColor(m.roots[0]) : "#59636e";
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(px, RULER - 3, 2, 0, Math.PI * 2); ctx.fill();
+  }
+
   bindInteraction(flameCanvas, W, H, x, (mx, my) => {
+    // derive dots in the ruler strip
+    if (my >= 0 && my <= RULER) {
+      for (const m of state.deriveMarkers) {
+        if (Math.abs(mx - x(m.at_ns)) <= 3) return { type: "derive", marker: m };
+      }
+      for (const m of state.rootMarkers) {
+        if (Math.abs(mx - x(m.at_ns)) <= 4) return { type: "root", marker: m };
+      }
+      return null;
+    }
     const depth = Math.floor((my - RULER) / (ROW + GAP));
     for (const span of state.spans) {
       if (span.depth !== depth) continue;
-      if (mx >= x(span.start) && mx <= x(span.end) && span.duration > 0) return span;
+      if (mx >= x(span.start) && mx <= x(span.end) && span.duration > 0) return { type: "span", span };
     }
     return null;
   });
@@ -577,12 +632,51 @@ function renderGantt() {
     }
   });
 
+  // root initialization markers: diamond at the start of each lane
+  for (const m of state.rootMarkers) {
+    const laneIdx = lanes.indexOf(m.binding);
+    if (laneIdx < 0) continue;
+    const px = x(m.at_ns);
+    if (px < LABEL_W - 4 || px > W + 4) continue;
+    const y = laneY(laneIdx) + ROW / 2;
+    const color = rootColor(m.binding);
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.moveTo(px, y - 5); ctx.lineTo(px + 4.5, y); ctx.lineTo(px, y + 5); ctx.lineTo(px - 4.5, y);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+
+  // value_derive markers: small dots in each relevant lane
+  for (const m of state.deriveMarkers) {
+    const px = x(m.at_ns);
+    if (px < LABEL_W - 4 || px > W + 4) continue;
+    for (const r of (m.roots && m.roots.length ? m.roots : ["(无 root)"])) {
+      const laneIdx = lanes.indexOf(r);
+      if (laneIdx < 0) continue;
+      const y = laneY(laneIdx) + ROW / 2;
+      ctx.fillStyle = rootColor(r);
+      ctx.beginPath(); ctx.arc(px, y, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   bindInteraction(ganttCanvas, W, H, x, (mx, my) => {
     if (mx < LABEL_W) return null;
     const laneIdx = Math.floor((my - RULER) / (ROW + GAP));
     if (laneIdx < 0 || laneIdx >= lanes.length) return null;
+    const laneRoot = lanes[laneIdx];
+    for (const m of state.deriveMarkers) {
+      if (Math.abs(mx - x(m.at_ns)) <= 3 && (m.roots || []).includes(laneRoot)) {
+        return { type: "derive", marker: m };
+      }
+    }
+    for (const m of state.rootMarkers) {
+      if (m.binding === laneRoot && Math.abs(mx - x(m.at_ns)) <= 4) {
+        return { type: "root", marker: m };
+      }
+    }
     for (const span of spansByLane[laneIdx]) {
-      if (mx >= x(span.start) && mx <= x(span.end)) return span;
+      if (mx >= x(span.start) && mx <= x(span.end)) return { type: "span", span };
     }
     return null;
   });
@@ -629,15 +723,35 @@ function bindInteraction(canvas, W, H, x, hitTest) {
 }
 
 /* ---------- tooltip ---------- */
-function showTooltip(e, span) {
-  if (!span) { tooltip.style.display = "none"; return; }
-  const chips = (span.roots || []).map((r) =>
-    `<span class="tt-chip"><i style="background:${rootColor(r)}"></i>${escapeHtml(r)}</span>`).join("");
-  tooltip.innerHTML =
-    `<div class="tt-fn">${escapeHtml(span.label)}</div>` +
-    `<div class="tt-row"><b>${escapeHtml(span.file || "?")}:${span.line || "?"}:${span.column || "?"}</b></div>` +
-    `<div class="tt-row">开始 <b>+${fmtNs(span.start - state.minNs)}</b> · 耗时 <b>${fmtNs(span.duration)}</b>${span.unwind ? " · <b>unwind</b>" : ""}</div>` +
-    `<div class="tt-roots">${chips}</div>`;
+function showTooltip(e, hit) {
+  if (!hit) { tooltip.style.display = "none"; return; }
+  let html = "";
+  if (hit.type === "root") {
+    const m = hit.marker;
+    html =
+      `<div class="tt-fn"><span style="color:${rootColor(m.binding)}">■</span> ${escapeHtml(m.binding)} 初始化</div>` +
+      `<div class="tt-row"><b>${escapeHtml(m.file || "?")}:${m.line || "?"}:${m.column || "?"}</b></div>` +
+      `<div class="tt-row">时刻 <b>+${fmtNs(m.at_ns - state.minNs)}</b></div>`;
+  } else if (hit.type === "derive") {
+    const m = hit.marker;
+    const chips = (m.roots || []).map((r) =>
+      `<span class="tt-chip"><i style="background:${rootColor(r)}"></i>${escapeHtml(r)}</span>`).join("");
+    html =
+      `<div class="tt-fn">${escapeHtml(m.label)}</div>` +
+      `<div class="tt-row"><b>${escapeHtml(m.file || "?")}:${m.line || "?"}:${m.column || "?"}</b></div>` +
+      `<div class="tt-row">时刻 <b>+${fmtNs(m.at_ns - state.minNs)}</b> · value_id <b>${m.value_id}</b></div>` +
+      `<div class="tt-roots">${chips}</div>`;
+  } else {
+    const span = hit.span;
+    const chips = (span.roots || []).map((r) =>
+      `<span class="tt-chip"><i style="background:${rootColor(r)}"></i>${escapeHtml(r)}</span>`).join("");
+    html =
+      `<div class="tt-fn">${escapeHtml(span.label)}</div>` +
+      `<div class="tt-row"><b>${escapeHtml(span.file || "?")}:${span.line || "?"}:${span.column || "?"}</b></div>` +
+      `<div class="tt-row">开始 <b>+${fmtNs(span.start - state.minNs)}</b> · 耗时 <b>${fmtNs(span.duration)}</b>${span.unwind ? " · <b>unwind</b>" : ""}</div>` +
+      `<div class="tt-roots">${chips}</div>`;
+  }
+  tooltip.innerHTML = html;
   tooltip.style.display = "block";
   const pad = 14;
   let left = e.clientX + pad, top = e.clientY + pad;

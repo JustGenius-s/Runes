@@ -64,20 +64,27 @@ println!("Hello, {normalized}");
 项目需要 Rust nightly、`rustc-dev`、`rust-src` 和 `llvm-tools-preview`。compiler 目录中的 `rust-toolchain.toml` 会选择所需工具链。
 
 ```bash
-./scripts/run-hello
+./scripts/run
 ```
 
 输出类似：
 
 ```text
-[Runes +541ns] root       user @ src/main.rs:11:5
-[Runes +66833ns] value.derive _8 <- &(_1.0: std::string::String) roots=[user] @ src/main.rs:15:37
-[Runes +71583ns] call.enter #2 normalize_name roots=[user] @ src/main.rs:15:22
-[Runes +73166ns] call.enter #3 core::str::<impl str>::trim roots=[user] @ src/main.rs:7:5
-[Runes +75083ns] call.exit  #3 core::str::<impl str>::trim roots=[user] duration=959ns
-[Runes +78625ns] call.exit  #2 normalize_name roots=[user] duration=5750ns
-Hello, ADA LOVELACE
+[Runes +83ns] root       count @ src/main.rs:46:5
+[Runes +181166ns] call.enter #1 double roots=[count] @ src/main.rs:47:19
+[Runes +188208ns] root       user @ src/main.rs:50:5
+[Runes +196333ns] value.derive _29 <- &_4 roots=[user] @ src/main.rs:63:50
+[Runes +202166ns] root       user_ref @ src/main.rs:63:5
+[Runes +203416ns] call.enter #2 describe_user roots=[user_ref] @ src/main.rs:64:16
+...
+[Runes +221666ns] call.enter #6 std::ops::Fn::call roots=[bump, count] @ src/main.rs:68:18
+...
+doubled: 42
+name: ADA LOVELACE
+total score: 282 (active)
 ```
+
+统一的 `examples/demo` 覆盖所有受支持的 root 值形态：标量、结构体、枚举、容器（`Vec`/`HashMap`）、引用、闭包和 `Box<dyn Trait>`，并演示多 root 汇合（闭包调用 `roots=[bump, count]`）。
 
 示例业务代码没有手工调用追踪 API；事件由编译器插入的 runtime hook 产生。运行结束后示例会调用 `write_trace_file_default()` 把结构化事件写入 `trace.json`（`RUNES_OUT` 可覆盖路径）。
 
@@ -180,13 +187,10 @@ crates/runes-syntax     rune 语法配置与源码降级
 crates/runes-runtime    原生事件记录和 runtime hook
 crates/runes-trace      后端无关的 trace 数据结构
 compiler/runes-driver   rustc_driver、MIR 分析与插桩
-examples/hello          最小 .rs 示例
-examples/multiroot      多 root 汇合与继承示例
+examples/demo           统一示例：全类型 root + 多 root 汇合
 viewer.html             零依赖 trace 可视化（火焰图 + 甘特图）
-scripts/run-hello       构建 driver 并运行 hello 示例
-scripts/run-multiroot   构建 driver 并运行多 root 示例
+scripts/run             构建 driver 并运行 demo 示例
 scripts/serve-viewer    启动 viewer 静态服务器
-scripts/test-integration 构建 driver 并断言两个示例的事件流
 ```
 
 ## 开发验证
@@ -205,8 +209,8 @@ cd compiler/runes-driver
 cargo check
 ```
 
-端到端（构建 driver 并运行示例、断言事件流）：
+端到端（构建 driver 并运行统一示例）：
 
 ```bash
-./scripts/test-integration
+./scripts/run
 ```

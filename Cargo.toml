@@ -4,5 +4,5 @@ members = [
     "crates/runes-runtime",
     "crates/runes-syntax",
 ]
-exclude = ["compiler/runes-driver", "examples/hello"]
+exclude = ["compiler/runes-driver", "examples/demo"]
 resolver = "3"
