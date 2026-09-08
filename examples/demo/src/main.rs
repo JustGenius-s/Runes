@@ -13,6 +13,8 @@ struct User {
 }
 
 #[derive(Debug, Clone)]
+// Both variants exist so the trace exercises enum coverage.
+#[allow(dead_code)]
 enum Status {
     Active,
     Paused,
@@ -54,7 +56,6 @@ fn main() {
 
     // --- enum ---
     rune status = Status::Active;
-    let _paused = Status::Paused; // exercise the second variant
 
     // --- containers ---
     rune tags = vec!["math".to_owned(), "pioneer".to_owned()];

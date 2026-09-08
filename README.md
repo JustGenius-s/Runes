@@ -61,11 +61,15 @@ println!("Hello, {normalized}");
 
 ## 快速运行
 
-项目需要 Rust nightly、`rustc-dev`、`rust-src` 和 `llvm-tools-preview`。compiler 目录中的 `rust-toolchain.toml` 会选择所需工具链。
+`cargo runes` 是标准 cargo 子命令：它构建 driver、把它装成 `RUSTC_WRAPPER`，然后转发给你的 cargo 命令。
 
 ```bash
-./scripts/run
+./scripts/install          # 把 cargo-runes 装进 ~/.cargo/bin（只需一次）
+cd examples/demo
+cargo runes run            # 或 cargo runes build / test
 ```
+
+driver 需要 Rust nightly + `rustc-dev`；`compiler/runes-driver/rust-toolchain.toml` 会自动选择，`cargo runes` 会用它构建 driver，业务代码本身仍照常编译。
 
 输出类似：
 
@@ -186,10 +190,11 @@ aliases = ["◇"]
 crates/runes-syntax     rune 语法配置与源码降级
 crates/runes-runtime    原生事件记录和 runtime hook
 crates/runes-trace      后端无关的 trace 数据结构
-compiler/runes-driver   rustc_driver、MIR 分析与插桩
+crates/cargo-runes      `cargo runes` 子命令（驱动 driver 的编排入口）
+compiler/runes-driver   rustc_driver：MIR 来源分析（provenance.rs）与插桩（instrument.rs）
 examples/demo           统一示例：全类型 root + 多 root 汇合
 viewer.html             零依赖 trace 可视化（火焰图 + 甘特图）
-scripts/run             构建 driver 并运行 demo 示例
+scripts/install          安装 cargo-runes 到 ~/.cargo/bin
 scripts/serve-viewer    启动 viewer 静态服务器
 ```
 
@@ -209,8 +214,9 @@ cd compiler/runes-driver
 cargo check
 ```
 
-端到端（构建 driver 并运行统一示例）：
+端到端（安装子命令 + 运行统一示例）：
 
 ```bash
-./scripts/run
+./scripts/install
+cd examples/demo && cargo runes run
 ```
