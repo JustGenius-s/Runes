@@ -3,8 +3,11 @@
  * module virtual:runes-runtime, so users never install or import a
  * runtime package themselves. Events follow trace schema v3, compatible
  * with the Runes viewer.
+ *
+ * The runtime is dual-environment: under Node.js it uses hrtime and can
+ * write trace files; in the browser it falls back to performance.now()
+ * and keeps events in memory for takeTraceEvents/subscribeTrace.
  */
-import { writeFileSync } from "node:fs";
 
 interface BaseEvent {
   at_ns: number;
@@ -49,18 +52,29 @@ export interface ValueDeriveEvent extends BaseEvent {
 
 export type TraceEvent = RootEvent | CallEnterEvent | CallExitEvent | ValueDeriveEvent;
 
-const startTime = process.hrtime.bigint();
-const capacity = Number(process.env.RUNES_BUFFER_CAPACITY ?? 4096);
-const shouldPrint = process.env.RUNES_PRINT !== "0";
+/** Listener invoked synchronously for every recorded event. */
+export type TraceListener = (event: TraceEvent) => void;
+
+const isNode =
+  typeof process !== "undefined" && typeof process.versions?.node === "string";
+
+const nodeStartNs = isNode ? process.hrtime.bigint() : 0n;
+const browserStartMs = isNode ? 0 : performance.now();
+const capacity = isNode ? Number(process.env.RUNES_BUFFER_CAPACITY ?? 4096) : 65536;
+// Printing every event is useful for CLI runs but noisy in devtools, so
+// it stays opt-in outside Node.
+const shouldPrint = isNode ? process.env.RUNES_PRINT !== "0" : false;
 
 const events: TraceEvent[] = [];
+const listeners = new Set<TraceListener>();
 let overflowed = 0;
 let callSequence = 0;
 let valueSequence = 0;
 const contextStack: string[][] = [];
 
 function nowNs(): number {
-  return Number(process.hrtime.bigint() - startTime);
+  if (isNode) return Number(process.hrtime.bigint() - nodeStartNs);
+  return Math.round((performance.now() - browserStartMs) * 1e6);
 }
 
 function formatEvent(event: TraceEvent): string {
@@ -139,6 +153,7 @@ function push(event: TraceEvent): void {
     overflowed++;
   }
   if (shouldPrint) console.log(formatEvent(event));
+  for (const listener of listeners) listener(event);
 }
 
 /** Roots of the innermost instrumented call, for manual propagation. */
@@ -276,13 +291,34 @@ export function takeTraceEvents(): TraceEvent[] {
   return events.slice();
 }
 
+/** Drops all recorded events; call/value sequences keep increasing. */
+export function clearTraceEvents(): void {
+  events.length = 0;
+  overflowed = 0;
+}
+
+/**
+ * Subscribes to trace events as they are recorded. Returns an
+ * unsubscribe function. Useful for live trace views in the browser.
+ */
+export function subscribeTrace(listener: TraceListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 /** Number of events dropped because the buffer reached capacity. */
 export function overflowedEventCount(): number {
   return overflowed;
 }
 
-/** Writes the trace document (schema v3) to path. */
+/** Writes the trace document (schema v3) to path. Node.js only. */
 export function writeTraceFile(path?: string): string {
+  if (!isNode) {
+    throw new Error("writeTraceFile is only available under Node.js");
+  }
+  const { writeFileSync } = process.getBuiltinModule("node:fs");
   const target = path ?? process.env.RUNES_OUT ?? "trace.json";
   const sorted = events.slice().sort((a, b) => a.at_ns - b.at_ns);
   const document = { schema_version: 3, overflowed_events: overflowed, events: sorted };
@@ -292,7 +328,7 @@ export function writeTraceFile(path?: string): string {
 
 // Auto-write the trace on exit when RUNES_OUT is set, so business code
 // does not need to call any tracing API by hand.
-if (process.env.RUNES_OUT) {
+if (isNode && process.env.RUNES_OUT) {
   process.on("exit", () => {
     writeTraceFile(process.env.RUNES_OUT);
   });

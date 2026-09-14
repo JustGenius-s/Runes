@@ -26,6 +26,7 @@
     "app:preview": "vp preview src/app"
   },
   "dependencies": {
+    "layerchart": "^2.5.0",
     "ts5": "npm:typescript@^5.9.2",
     "unplugin": "^3.3.0"
   },
@@ -36,6 +37,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.1",
+    "@xyflow/svelte": "^1.6.6",
     "bits-ui": "^2.19.2",
     "bumpp": "^11.1.0",
     "clsx": "^2.1.1",

@@ -2,6 +2,7 @@
 	import ChartLineIcon from "@lucide/svelte/icons/chart-line";
 	import PlayIcon from "@lucide/svelte/icons/play";
 	import WaypointsIcon from "@lucide/svelte/icons/waypoints";
+	import CounterView from "./experiments/counter/counter-view.svelte";
 	import type { Selection } from "./nav.svelte.js";
 
 	let { selection }: { selection: Selection } = $props();
@@ -36,6 +37,9 @@
 		<p class="text-muted-foreground">{selection.experiment.summary}</p>
 	</div>
 
+	{#if selection.experiment.id === "counter"}
+		<CounterView />
+	{:else}
 	<div class="grid gap-4 md:grid-cols-3">
 		{#each panels as panel (panel.title)}
 			<div
@@ -47,4 +51,5 @@
 			</div>
 		{/each}
 	</div>
+	{/if}
 </div>
