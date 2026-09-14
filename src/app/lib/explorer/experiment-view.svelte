@@ -9,18 +9,18 @@
 	const panels = [
 		{
 			icon: PlayIcon,
-			title: "演示区",
-			description: "可交互的实验场景，在这里触发操作。",
+			title: "Playground",
+			description: "An interactive scene — trigger operations here.",
 		},
 		{
 			icon: WaypointsIcon,
-			title: "数据流追踪",
-			description: "Runes 记录的派生链与依赖调用图。",
+			title: "Data-Flow Trace",
+			description: "Derivation chains and dependency call graph recorded by Runes.",
 		},
 		{
 			icon: ChartLineIcon,
-			title: "定量指标",
-			description: "更新次数、扇出宽度、链长等量化对比。",
+			title: "Metrics",
+			description: "Quantified comparison: update counts, fan-out, chain length.",
 		},
 	];
 </script>

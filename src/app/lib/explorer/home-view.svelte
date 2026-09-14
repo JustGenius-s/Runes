@@ -8,8 +8,9 @@
 	<div class="flex flex-col gap-2">
 		<h1 class="text-3xl font-bold tracking-tight">Runes Explorer</h1>
 		<p class="max-w-2xl text-muted-foreground">
-			前端算法、设计模式与组件最佳实践的探索器。通过 Runes
-			对每个实验做数据流追踪，把「哪种实现更好」变成可量化的对比。
+			An explorer for front-end algorithms, design patterns, and component
+			best practices. Runes traces the data flow of every experiment, turning
+			"which implementation is better" into a measurable comparison.
 		</p>
 	</div>
 

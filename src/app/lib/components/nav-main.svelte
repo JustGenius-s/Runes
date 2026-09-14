@@ -9,7 +9,7 @@
 </script>
 
 <Sidebar.Group>
-	<Sidebar.GroupLabel>探索器</Sidebar.GroupLabel>
+	<Sidebar.GroupLabel>Explorer</Sidebar.GroupLabel>
 	<Sidebar.Menu>
 		{#each items as category (category.id)}
 			<Collapsible.Root open class="group/collapsible">

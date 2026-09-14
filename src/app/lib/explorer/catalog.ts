@@ -3,16 +3,16 @@ import ComponentIcon from "@lucide/svelte/icons/component";
 import PuzzleIcon from "@lucide/svelte/icons/puzzle";
 import SigmaIcon from "@lucide/svelte/icons/sigma";
 
-/** 一个可追踪的实验条目。 */
+/** A single traceable experiment. */
 export interface Experiment {
-	/** 全局唯一 id，用于导航选中态。 */
+	/** Globally unique id, used for nav selection. */
 	id: string;
 	title: string;
-	/** 这个实验要量化什么。 */
+	/** What this experiment quantifies. */
 	summary: string;
 }
 
-/** 侧边栏中的一个分类。 */
+/** A category in the sidebar. */
 export interface Category {
 	id: string;
 	title: string;
@@ -23,82 +23,91 @@ export interface Category {
 export const catalog: Category[] = [
 	{
 		id: "algorithms",
-		title: "算法",
+		title: "Algorithms",
 		icon: SigmaIcon,
 		experiments: [
 			{
 				id: "sorting",
-				title: "排序对比",
-				summary: "冒泡 / 快排 / 归并的比较次数、写入次数与派生链长度。",
+				title: "Sorting",
+				summary:
+					"Bubble vs quick vs merge: comparisons, writes, and derivation chain length.",
 			},
 			{
 				id: "binary-search",
-				title: "二分查找",
-				summary: "每一步的区间收敛路径与访问序列。",
+				title: "Binary Search",
+				summary: "Interval convergence path and access sequence per step.",
 			},
 			{
 				id: "graph-traversal",
-				title: "图遍历",
-				summary: "BFS / DFS 的访问顺序与队列、栈的实时变化。",
+				title: "Graph Traversal",
+				summary: "BFS vs DFS visit order with live queue/stack changes.",
 			},
 			{
 				id: "dp-fib",
-				title: "动态规划",
-				summary: "斐波那契：朴素递归 vs 记忆化的重复计算量对比。",
+				title: "Dynamic Programming",
+				summary:
+					"Fibonacci: naive recursion vs memoization redundant-computation comparison.",
 			},
 		],
 	},
 	{
 		id: "patterns",
-		title: "设计模式",
+		title: "Design Patterns",
 		icon: PuzzleIcon,
 		experiments: [
 			{
 				id: "pub-sub",
-				title: "发布订阅",
-				summary: "一次事件发布引发的订阅者通知链与扇出宽度。",
+				title: "Pub/Sub",
+				summary:
+					"Subscriber notification chain and fan-out width per published event.",
 			},
 			{
 				id: "strategy",
-				title: "策略模式",
-				summary: "运行时切换策略后的调用分布与上下文依赖。",
+				title: "Strategy",
+				summary:
+					"Call distribution and context dependencies after runtime strategy switches.",
 			},
 			{
 				id: "state-machine",
-				title: "状态机",
-				summary: "状态迁移路径、迁移次数与非法迁移拦截记录。",
+				title: "State Machine",
+				summary:
+					"Transition paths, transition counts, and intercepted illegal transitions.",
 			},
 			{
 				id: "memento",
-				title: "备忘录",
-				summary: "撤销 / 重做的快照数量、体积与恢复路径。",
+				title: "Memento",
+				summary: "Undo/redo snapshot count, size, and restore paths.",
 			},
 		],
 	},
 	{
 		id: "components",
-		title: "组件",
+		title: "Components",
 		icon: ComponentIcon,
 		experiments: [
 			{
 				id: "counter",
-				title: "计数器",
-				summary: "最小状态单元：一次点击触发的派生更新链。",
+				title: "Counter",
+				summary:
+					"The minimal state unit: derivation updates triggered by a single click.",
 			},
 			{
 				id: "todo-list",
-				title: "Todo 列表",
-				summary: "增删改与过滤操作引发的派生计算范围。",
+				title: "Todo List",
+				summary:
+					"Derived computation scope caused by add/remove/toggle and filtering.",
 			},
 			{
 				id: "form-validation",
-				title: "表单校验",
-				summary: "字段间依赖关系与单次输入的校验触发面。",
+				title: "Form Validation",
+				summary:
+					"Inter-field dependencies and the validation surface of a single input.",
 			},
 			{
 				id: "store-compare",
-				title: "状态管理对比",
-				summary: "同一场景下不同状态管理方案的更新扇出对比。",
+				title: "Store Comparison",
+				summary:
+					"Update fan-out of different state-management approaches on the same scene.",
 			},
 		],
 	},
