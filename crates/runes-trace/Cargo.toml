@@ -1,8 +1,0 @@
-[package]
-name = "runes-trace"
-version = "0.1.0"
-edition = "2024"
-description = "Shared trace protocol for Runes"
-license = "MIT"
-
-[dependencies]

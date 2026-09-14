@@ -1,5 +1,9 @@
-/target/
-/compiler/*/target/
-/examples/*/target/
-trace.jsonl
-/trace.json
+node_modules
+dist
+dist-app
+*.log
+.DS_Store
+.runes
+trace.json
+.cache
+.pnpm-store

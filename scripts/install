@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Installs the `cargo runes` subcommand into ~/.cargo/bin so any project can be
-# traced with `cargo runes <subcommand>`.
-RUNES_PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-
-echo "installing cargo-runes from $RUNES_PROJECT_DIR"
-cargo install --path "$RUNES_PROJECT_DIR/crates/cargo-runes" --force
