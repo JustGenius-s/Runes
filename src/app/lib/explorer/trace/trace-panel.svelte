@@ -1,80 +1,88 @@
 <script lang="ts">
-	import GanttChartIcon from "@lucide/svelte/icons/gantt-chart";
-	import ListIcon from "@lucide/svelte/icons/list";
-	import WorkflowIcon from "@lucide/svelte/icons/workflow";
+	import ArrowRightIcon from "@lucide/svelte/icons/arrow-right";
 	import type { TraceEvent } from "virtual:runes-runtime";
-	import TraceEvents from "./trace-events.svelte";
-	import TraceFlow from "./trace-flow.svelte";
-	import TraceGantt from "./trace-gantt.svelte";
+	import { buildDataPaths, formatNs } from "./trace-paths.js";
 
 	interface Props {
 		events: TraceEvent[];
-		/** Index into events where the latest action begins. */
-		actionStart?: number;
-		/** Latest value per binding, shown on the flow graph nodes. */
-		values?: Record<string, string>;
+		title?: string;
 		emptyHint?: string;
 		class?: string;
 	}
 
 	let {
 		events,
-		actionStart = 0,
-		values = {},
-		emptyHint = "Run the scenario to generate trace events.",
-		class: className = "min-h-96",
+		title = "Data paths",
+		emptyHint = "Run the scenario to trace its data.",
+		class: className = "",
 	}: Props = $props();
 
-	let view = $state<"flow" | "timeline" | "events">("flow");
+	const paths = $derived(buildDataPaths(events));
 
-	const views = [
-		{ id: "flow", label: "Flow", icon: WorkflowIcon },
-		{ id: "timeline", label: "Calls", icon: GanttChartIcon },
-		{ id: "events", label: "Events", icon: ListIcon },
-	] as const;
-
-	// The explanatory views follow one action. Raw events retain the full buffer.
-	const actionEvents = $derived(events.slice(actionStart));
-	const viewDescription = $derived(
-		view === "flow"
-			? "Latest action · direct dependencies and produced values"
-			: view === "timeline"
-				? "Latest action · function order and measured duration"
-				: "Raw instrumentation events across all actions",
-	);
+	function duration(ns: number): string {
+		return ns === 0 ? "≈ 0" : formatNs(ns);
+	}
 </script>
 
-<div class="flex min-w-0 flex-col {className}">
-	<div class="flex flex-wrap items-center justify-between gap-2 pb-2.5">
-		<div>
-			<h3 class="text-sm font-medium">Data-Flow Trace</h3>
-			<p class="pt-0.5 text-[10px] text-muted-foreground">{viewDescription}</p>
-		</div>
-		<div class="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
-			{#each views as v (v.id)}
-				<button
-					type="button"
-					class={{
-						"flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors": true,
-						"bg-background font-medium shadow-sm": view === v.id,
-						"text-muted-foreground hover:text-foreground": view !== v.id,
-					}}
-					onclick={() => (view = v.id)}
-					aria-pressed={view === v.id}
-				>
-					<v.icon class="size-3.5" />
-					{v.label}
-				</button>
-			{/each}
-		</div>
-	</div>
-	<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-muted/30" class:relative={view === "flow"}>
-		{#if view === "flow"}
-			<div class="absolute inset-0"><TraceFlow events={actionEvents} {values} {emptyHint} /></div>
-		{:else if view === "timeline"}
-			<TraceGantt events={actionEvents} {emptyHint} />
-		{:else}
-			<div class="min-h-0 flex-1 overflow-auto"><TraceEvents {events} {actionStart} {emptyHint} /></div>
+{#snippet time(ns: number, pending: boolean)}
+	{#if pending}
+		<span>pending</span>
+	{:else}
+		<span title={ns === 0 ? "Below the timer resolution" : undefined}>{duration(ns)}</span>
+	{/if}
+{/snippet}
+
+<section class="flex min-w-0 flex-col {className}">
+	<div class="flex items-baseline justify-between gap-2 pb-2">
+		<h3 class="text-sm font-medium">{title}</h3>
+		{#if paths.length > 0}
+			<span class="text-[10px] text-muted-foreground">{paths.length} values · path time</span>
 		{/if}
 	</div>
-</div>
+	{#if paths.length === 0}
+		<div class="flex min-h-24 items-center justify-center rounded-md border border-dashed px-4 text-center text-xs text-muted-foreground">
+			{emptyHint}
+		</div>
+	{:else}
+		<ol class="divide-y rounded-md border">
+			{#each paths as path (path.id)}
+				<li class="flex items-start gap-4 px-3 py-2">
+					<div class="min-w-0 flex-1 space-y-1">
+						<div class="flex min-w-0 items-baseline gap-2 font-mono text-xs">
+							<span class="shrink-0 font-semibold">{path.name}</span>
+							{#if path.value !== undefined}
+								<span class="truncate text-muted-foreground" title={path.value}>= {path.value}</span>
+							{/if}
+						</div>
+						<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+							{#each path.steps as step, index (step.id)}
+								{#if index > 0}
+									<ArrowRightIcon class="size-3 shrink-0" />
+									{#if step.calls.length > 0}
+										<span>{step.calls.map((call) => call.label).join(" · ")}</span>
+										<span class="rounded bg-muted px-1 tabular-nums text-foreground/80">
+											{@render time(step.durationNs, step.calls.some((call) => call.durationNs === undefined))}
+										</span>
+										<ArrowRightIcon class="size-3 shrink-0" />
+									{/if}
+								{/if}
+								<span class="rounded border bg-background px-1 text-foreground">{step.name}</span>
+							{/each}
+						</div>
+						{#if path.otherInputs.length > 0}
+							<div class="text-[10px] text-muted-foreground">also reads {path.otherInputs.join(", ")}</div>
+						{/if}
+					</div>
+					<div class="shrink-0 pt-px text-right font-mono text-xs tabular-nums">
+						{#if path.input}
+							<span class="text-muted-foreground">input</span>
+						{:else}
+							{@render time(path.totalNs, path.pending)}
+							{#if path.threw}<div class="text-[10px] text-destructive">threw</div>{/if}
+						{/if}
+					</div>
+				</li>
+			{/each}
+		</ol>
+	{/if}
+</section>

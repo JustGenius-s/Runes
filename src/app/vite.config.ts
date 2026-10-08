@@ -14,12 +14,9 @@ export default defineConfig({
   optimizeDeps: {
     noDiscovery: true,
     include: [
-      "@svar-ui/svelte-gantt",
-      "@xyflow/svelte",
       "bits-ui",
       "highlight.js/lib/core",
       "highlight.js/lib/languages/typescript",
-      "layerchart",
     ],
   },
   resolve: {
