@@ -7,6 +7,13 @@ import { runes } from "../core/index.ts";
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 
+// Browsers coarsen performance.now() to ~100 µs unless the page is
+// cross-origin isolated; isolation gives the trace durations ~5 µs resolution.
+const crossOriginIsolation = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+};
+
 export default defineConfig({
   // The dependency scanner parses application modules before Vite plugins run.
   // Disable discovery so `rune` declarations are first lowered by the Runes
@@ -32,9 +39,11 @@ export default defineConfig({
   ],
   server: {
     port: 5170,
+    headers: crossOriginIsolation,
   },
   preview: {
     port: 5170,
+    headers: crossOriginIsolation,
   },
   build: {
     outDir: path.join(appRoot, "..", "..", "dist-app"),

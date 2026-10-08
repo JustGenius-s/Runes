@@ -54,21 +54,23 @@
 								<span class="truncate text-muted-foreground" title={path.value}>= {path.value}</span>
 							{/if}
 						</div>
-						<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
-							{#each path.steps as step, index (step.id)}
-								{#if index > 0}
-									<ArrowRightIcon class="size-3 shrink-0" />
-									{#if step.calls.length > 0}
-										<span>{step.calls.map((call) => call.label).join(" · ")}</span>
-										<span class="rounded bg-muted px-1 tabular-nums text-foreground/80">
-											{@render time(step.durationNs, step.calls.some((call) => call.durationNs === undefined))}
-										</span>
+						{#if !path.input}
+							<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[11px] text-muted-foreground">
+								{#each path.steps as step, index (step.id)}
+									{#if index > 0}
 										<ArrowRightIcon class="size-3 shrink-0" />
+										{#if step.calls.length > 0}
+											<span>{step.calls.map((call) => call.label).join(" · ")}</span>
+											<span class="rounded bg-muted px-1 tabular-nums text-foreground/80">
+												{@render time(step.durationNs, step.calls.some((call) => call.durationNs === undefined))}
+											</span>
+											<ArrowRightIcon class="size-3 shrink-0" />
+										{/if}
 									{/if}
-								{/if}
-								<span class="rounded border bg-background px-1 text-foreground">{step.name}</span>
-							{/each}
-						</div>
+									<span class="rounded border bg-background px-1 text-foreground">{step.name}</span>
+								{/each}
+							</div>
+						{/if}
 						{#if path.otherInputs.length > 0}
 							<div class="text-[10px] text-muted-foreground">also reads {path.otherInputs.join(", ")}</div>
 						{/if}
