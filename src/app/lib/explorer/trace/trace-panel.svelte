@@ -199,6 +199,7 @@
 					{@const path = row.path}
 					{@const own = ownStep(path)}
 					{@const ownLabel = callLabel(own)}
+					{@const nodeColor = ownLabel ? colorOf(ownLabel) : "var(--muted-foreground)"}
 					{@const connector = connectors[index]}
 					{@const isCollapsed = collapsed.has(path.name)}
 					{@const isSelected = selectedPath?.id === path.id}
@@ -234,18 +235,34 @@
 									{@render line("left-1/2 top-3.5 w-full", "top", connector.elbowHorizontal)}
 								</span>
 							{/if}
-							<span class="relative w-4 shrink-0">
+							<span class="group/node relative w-4 shrink-0">
+								<!-- A collapsed node is drawn hollow, like a folded branch. -->
 								<span
 									class={{
-										"absolute left-1/2 top-3.5 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 transition-all": true,
+										"pointer-events-none absolute left-1/2 top-3.5 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 transition-all": true,
 										"size-3.5 ring-foreground": pointed,
 										"size-3 ring-card": !pointed && activeSteps.has(path.id),
 										"size-2.5 ring-card": !pointed && !activeSteps.has(path.id),
+										"border-2 group-hover/node:scale-125": row.hasChildren,
 									}}
-									style:background={ownLabel ? colorOf(ownLabel) : "var(--muted-foreground)"}
+									style:background={isCollapsed ? "var(--card)" : nodeColor}
+									style:border-color={row.hasChildren ? nodeColor : undefined}
 								></span>
-								{#if row.hasChildren && !isCollapsed}
-									{@render line("bottom-0 left-1/2 top-3.5", "left", connector.nodeDown)}
+								{#if row.hasChildren}
+									<button
+										type="button"
+										tabindex="-1"
+										class="absolute inset-x-0 top-0 z-20 h-7 cursor-pointer"
+										aria-label={isCollapsed ? `Expand ${path.name}` : `Collapse ${path.name}`}
+										title={isCollapsed ? "Expand" : "Collapse"}
+										onclick={(event) => {
+											event.stopPropagation();
+											toggleCollapsed(path);
+										}}
+									></button>
+									{#if !isCollapsed}
+										{@render line("bottom-0 left-1/2 top-3.5", "left", connector.nodeDown)}
+									{/if}
 								{/if}
 							</span>
 							<div class="flex min-w-0 flex-1 flex-col gap-1 pt-1.5 pl-1">
