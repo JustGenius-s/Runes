@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ChartLineIcon from "@lucide/svelte/icons/chart-line";
 	import PlayIcon from "@lucide/svelte/icons/play";
 	import WaypointsIcon from "@lucide/svelte/icons/waypoints";
 	import CounterView from "./experiments/counter/counter-view.svelte";
@@ -16,13 +15,8 @@
 		},
 		{
 			icon: WaypointsIcon,
-			title: "Data-Flow Trace",
-			description: "Derivation chains and dependency call graph recorded by Runes.",
-		},
-		{
-			icon: ChartLineIcon,
-			title: "Metrics",
-			description: "Quantified comparison: update counts, fan-out, chain length.",
+			title: "Data paths",
+			description: "Each value's path from its input and the time it took.",
 		},
 	];
 </script>
@@ -43,7 +37,7 @@
 	{:else if selection.experiment.id === "form-validation"}
 		<FormValidationView />
 	{:else}
-		<div class="grid gap-4 md:grid-cols-3">
+		<div class="grid gap-4 md:grid-cols-2">
 			{#each panels as panel (panel.title)}
 				<div
 					class="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center"
