@@ -149,32 +149,79 @@ export interface PathTreeRow {
 	/** Whether this is the last child of its parent. */
 	last: boolean;
 	hasChildren: boolean;
+	/** Number of values nested below this row, including hidden ones. */
+	descendants: number;
 	/** For each ancestor level above the parent, whether its branch continues below this row. */
 	guides: boolean[];
 }
 
 /**
  * Nests every path under the previous step of its chain, so walking up the
- * tree from a row retraces that value's path back to its input.
+ * tree from a row retraces that value's path back to its input. Children of
+ * collapsed paths are left out.
  */
-export function layoutPathTree(paths: DataPath[]): PathTreeRow[] {
+export function layoutPathTree(
+	paths: DataPath[],
+	isCollapsed: (path: DataPath) => boolean = () => false,
+): PathTreeRow[] {
 	const children = new Map<string | undefined, DataPath[]>();
 	for (const path of paths) {
 		const parent = path.steps.at(-2)?.id;
 		children.set(parent, [...(children.get(parent) ?? []), path]);
 	}
+	const countDescendants = (id: string): number =>
+		(children.get(id) ?? []).reduce((sum, child) => sum + 1 + countDescendants(child.id), 0);
 
 	const rows: PathTreeRow[] = [];
 	function visit(parent: string | undefined, depth: number, guides: boolean[]) {
 		const siblings = children.get(parent) ?? [];
 		for (const [index, path] of siblings.entries()) {
 			const last = index === siblings.length - 1;
-			rows.push({ path, depth, last, hasChildren: children.has(path.id), guides });
-			visit(path.id, depth + 1, depth === 0 ? [] : [...guides, !last]);
+			rows.push({
+				path,
+				depth,
+				last,
+				hasChildren: children.has(path.id),
+				descendants: countDescendants(path.id),
+				guides,
+			});
+			if (!isCollapsed(path)) visit(path.id, depth + 1, depth === 0 ? [] : [...guides, !last]);
 		}
 	}
 	visit(undefined, 0, []);
 	return rows;
+}
+
+/** Which connector pieces of a row lie on the highlighted path. */
+export interface ConnectorHighlight {
+	guides: boolean[];
+	/** Elbow line from the top of the row down to the node. */
+	elbowTop: boolean;
+	/** Elbow line from the node down to a later sibling. */
+	elbowBottom: boolean;
+	elbowHorizontal: boolean;
+	/** Line from the node down to its children. */
+	nodeDown: boolean;
+}
+
+/** Marks the connectors that trace `path` from its input down to its value. */
+export function connectorHighlights(rows: PathTreeRow[], path: DataPath | undefined): ConnectorHighlight[] {
+	const ids = path?.steps.map((step) => step.id) ?? [];
+	const rowIndex = new Map(rows.map((row, index) => [row.path.id, index]));
+	return rows.map((row, index) => {
+		const ancestry = row.path.steps.map((step) => step.id);
+		const onPath = ids[row.depth] === row.path.id;
+		// Whether the path leaves the ancestor at `level` for a child drawn below this row.
+		const continuesBelow = (level: number) =>
+			ancestry[level] === ids[level] && (rowIndex.get(ids[level + 1]) ?? -1) > index;
+		return {
+			guides: row.guides.map((_, level) => continuesBelow(level)),
+			elbowTop: row.depth > 0 && (onPath || continuesBelow(row.depth - 1)),
+			elbowBottom: row.depth > 0 && continuesBelow(row.depth - 1),
+			elbowHorizontal: row.depth > 0 && onPath,
+			nodeDown: onPath && row.depth + 1 < ids.length,
+		};
+	});
 }
 
 export function formatNs(ns: number): string {
