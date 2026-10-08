@@ -254,14 +254,15 @@
 										<button
 											type="button"
 											tabindex="-1"
-											class="-ml-1 flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+											class="-my-0.5 flex size-5 shrink-0 items-center justify-center rounded border border-transparent text-muted-foreground hover:border-border hover:bg-background hover:text-foreground"
 											aria-label={isCollapsed ? `Expand ${path.name}` : `Collapse ${path.name}`}
+											title={isCollapsed ? "Expand" : "Collapse"}
 											onclick={(event) => {
 												event.stopPropagation();
 												toggleCollapsed(path);
 											}}
 										>
-											<ChevronRightIcon class={{ "size-3 transition-transform": true, "rotate-90": !isCollapsed }} />
+											<ChevronRightIcon class={{ "size-3.5 transition-transform": true, "rotate-90": !isCollapsed }} />
 										</button>
 									{/if}
 									<span class="shrink-0 font-semibold">{path.name}</span>
