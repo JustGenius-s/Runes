@@ -142,6 +142,40 @@ export function buildDataPaths(events: TraceEvent[]): DataPath[] {
 	return [...paths.values()].sort((a, b) => a.order - b.order).map((entry) => entry.path);
 }
 
+/** A data path placed in the dependency tree. */
+export interface PathTreeRow {
+	path: DataPath;
+	depth: number;
+	/** Whether this is the last child of its parent. */
+	last: boolean;
+	/** For each ancestor level above the parent, whether its branch continues below this row. */
+	guides: boolean[];
+}
+
+/**
+ * Nests every path under the previous step of its chain, so walking up the
+ * tree from a row retraces that value's path back to its input.
+ */
+export function layoutPathTree(paths: DataPath[]): PathTreeRow[] {
+	const children = new Map<string | undefined, DataPath[]>();
+	for (const path of paths) {
+		const parent = path.steps.at(-2)?.id;
+		children.set(parent, [...(children.get(parent) ?? []), path]);
+	}
+
+	const rows: PathTreeRow[] = [];
+	function visit(parent: string | undefined, depth: number, guides: boolean[]) {
+		const siblings = children.get(parent) ?? [];
+		for (const [index, path] of siblings.entries()) {
+			const last = index === siblings.length - 1;
+			rows.push({ path, depth, last, guides });
+			visit(path.id, depth + 1, depth === 0 ? [] : [...guides, !last]);
+		}
+	}
+	visit(undefined, 0, []);
+	return rows;
+}
+
 export function formatNs(ns: number): string {
 	if (ns >= 1e9) return `${(ns / 1e9).toFixed(2)} s`;
 	if (ns >= 1e6) return `${(ns / 1e6).toFixed(2)} ms`;

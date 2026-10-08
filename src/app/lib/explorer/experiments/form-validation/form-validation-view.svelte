@@ -9,6 +9,7 @@
 	} from "virtual:runes-runtime";
 	import SourceCode from "../../source-code.svelte";
 	import TracePanel from "../../trace/trace-panel.svelte";
+	import { buildDataPaths } from "../../trace/trace-paths.js";
 	import FormPreview from "./form-preview.svelte";
 	import {
 		initialFormState,
@@ -78,6 +79,10 @@
 		return [`${fixedStructure}-binding`, `${fixedStructure}-store`];
 	});
 	const selectedRun = $derived(runs[selectedIndex] ?? null);
+	// Both panels share one time axis so their bars compare directly.
+	const sharedScaleNs = $derived(
+		Math.max(0, ...runs.flatMap((run) => buildDataPaths(run.events).map((path) => path.totalNs))),
+	);
 	const selectedVariant = $derived(selectedRun?.result.variant ?? pair[selectedIndex]);
 	const sourceFocus = $derived(sourceFocusByVariant[selectedVariant]);
 	const submitEnabled = $derived(
@@ -283,6 +288,7 @@
 	{#each pair as variant, index (variant)}
 		<TracePanel
 			events={runs[index]?.events ?? []}
+			scaleNs={sharedScaleNs}
 			title="{index === 0 ? 'A' : 'B'} · {variantMeta[variant].title}"
 			emptyHint="Edit a field in Preview to trace both implementations."
 		/>

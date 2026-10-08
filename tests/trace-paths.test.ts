@@ -19,12 +19,16 @@ interface DataPath {
 }
 
 type BuildDataPaths = (events: TraceEvent[]) => DataPath[];
+type LayoutPathTree = (
+  paths: DataPath[],
+) => { path: DataPath; depth: number; last: boolean; guides: boolean[] }[];
 
 const at_ns = 0;
 
 describe("buildDataPaths", () => {
   let server: ViteDevServer;
   let buildDataPaths: BuildDataPaths;
+  let layoutPathTree: LayoutPathTree;
   let counterEvents: TraceEvent[];
 
   beforeAll(async () => {
@@ -36,9 +40,9 @@ describe("buildDataPaths", () => {
     });
     // Loaded through Vite because the app module imports types from the
     // virtual runtime, which only the app's type environment declares.
-    ({ buildDataPaths } = (await server.ssrLoadModule(
+    ({ buildDataPaths, layoutPathTree } = (await server.ssrLoadModule(
       "/src/app/lib/explorer/trace/trace-paths.ts",
-    )) as { buildDataPaths: BuildDataPaths });
+    )) as { buildDataPaths: BuildDataPaths; layoutPathTree: LayoutPathTree });
     const counter = (await server.ssrLoadModule(
       "/src/app/lib/explorer/experiments/counter/scenario.ts",
     )) as { step: (current: number, delta: 1 | -1) => unknown };
@@ -80,6 +84,17 @@ describe("buildDataPaths", () => {
     expect(summary.steps.map((step) => step.name)).toEqual(["count", "next", "parity", "summary"]);
     expect(summary.otherInputs).toEqual([]);
     expect(summary.pending || summary.threw).toBe(false);
+  });
+
+  it("nests each value under the previous step of its path", () => {
+    const rows = layoutPathTree(buildDataPaths(counterEvents));
+    expect(rows.map((row) => [row.path.name, row.depth, row.last, row.guides.join(",")])).toEqual([
+      ["count", 0, true, ""],
+      ["next", 1, true, ""],
+      ["doubled", 2, false, "false"],
+      ["parity", 2, true, "false"],
+      ["summary", 3, true, "false,false"],
+    ]);
   });
 
   it("sums measured call durations along the path", () => {
