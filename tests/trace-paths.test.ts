@@ -21,7 +21,7 @@ interface DataPath {
 type BuildDataPaths = (events: TraceEvent[]) => DataPath[];
 type LayoutPathTree = (
   paths: DataPath[],
-) => { path: DataPath; depth: number; last: boolean; guides: boolean[] }[];
+) => { path: DataPath; depth: number; last: boolean; hasChildren: boolean; guides: boolean[] }[];
 
 const at_ns = 0;
 
@@ -88,12 +88,20 @@ describe("buildDataPaths", () => {
 
   it("nests each value under the previous step of its path", () => {
     const rows = layoutPathTree(buildDataPaths(counterEvents));
-    expect(rows.map((row) => [row.path.name, row.depth, row.last, row.guides.join(",")])).toEqual([
-      ["count", 0, true, ""],
-      ["next", 1, true, ""],
-      ["doubled", 2, false, "false"],
-      ["parity", 2, true, "false"],
-      ["summary", 3, true, "false,false"],
+    expect(
+      rows.map((row) => [
+        row.path.name,
+        row.depth,
+        row.last,
+        row.hasChildren,
+        row.guides.join(","),
+      ]),
+    ).toEqual([
+      ["count", 0, true, true, ""],
+      ["next", 1, true, true, ""],
+      ["doubled", 2, false, false, "false"],
+      ["parity", 2, true, true, "false"],
+      ["summary", 3, true, false, "false,false"],
     ]);
   });
 

@@ -20,14 +20,14 @@
 	}: Props = $props();
 
 	const palette = [
-		"var(--chart-1)",
-		"var(--chart-2)",
-		"var(--chart-3)",
-		"var(--chart-4)",
-		"var(--chart-5)",
-		"oklch(0.62 0.19 260)",
-		"oklch(0.65 0.2 330)",
-		"oklch(0.6 0.13 140)",
+		"oklch(0.62 0.19 255)",
+		"oklch(0.7 0.17 50)",
+		"oklch(0.65 0.13 185)",
+		"oklch(0.58 0.2 295)",
+		"oklch(0.66 0.2 355)",
+		"oklch(0.68 0.16 145)",
+		"oklch(0.78 0.15 85)",
+		"oklch(0.55 0.08 230)",
 	];
 
 	const paths = $derived(buildDataPaths(events));
@@ -93,6 +93,7 @@
 				{#each rows as row (row.path.id)}
 					{@const path = row.path}
 					{@const own = path.steps.at(-1)!}
+					{@const ownLabel = own.calls.map((call) => call.label).join(" · ")}
 					<li
 						class={{
 							"flex h-11 items-stretch gap-3 px-2 transition-colors": true,
@@ -101,19 +102,27 @@
 						onmouseenter={() => (hoveredId = path.id)}
 					>
 						<div class="flex min-w-0 flex-1 items-stretch">
+							<!-- Connectors meet at the name line, 14px from the row top. -->
 							{#each row.guides as continues, level (level)}
 								<span class="relative w-4 shrink-0">
-									{#if continues}<span class="absolute inset-y-0 left-1/2 border-l"></span>{/if}
+									{#if continues}<span class="absolute inset-y-0 left-1/2 border-l border-muted-foreground/40"></span>{/if}
 								</span>
 							{/each}
 							{#if row.depth > 0}
 								<span class="relative w-4 shrink-0">
-									<span class={{ "absolute left-1/2 top-0 border-l": true, "h-1/2": row.last, "h-full": !row.last }}></span>
-									<span class="absolute left-1/2 top-1/2 w-1/2 border-t"></span>
+									<span class={{ "absolute left-1/2 top-0 border-l border-muted-foreground/40": true, "h-3.5": row.last, "h-full": !row.last }}></span>
+									<span class="absolute left-1/2 top-3.5 w-full border-t border-muted-foreground/40"></span>
 								</span>
 							{/if}
-							<div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5 pl-1">
-								<div class="flex min-w-0 items-baseline gap-1.5 font-mono text-xs">
+							<span class="relative w-4 shrink-0">
+								<span
+									class="absolute left-1/2 top-3.5 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card"
+									style:background={ownLabel ? colorOf(ownLabel) : "var(--muted-foreground)"}
+								></span>
+								{#if row.hasChildren}<span class="absolute bottom-0 left-1/2 top-3.5 border-l border-muted-foreground/40"></span>{/if}
+							</span>
+							<div class="flex min-w-0 flex-1 flex-col gap-0.5 pt-1.5 pl-1">
+								<div class="flex h-4 min-w-0 items-center gap-1.5 font-mono text-xs">
 									<span class="shrink-0 font-semibold">{path.name}</span>
 									{#if path.value !== undefined}
 										<span class="truncate text-muted-foreground" title={path.value}>= {path.value}</span>
@@ -122,10 +131,8 @@
 								<div class="flex min-w-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
 									{#if path.input}
 										<span>input</span>
-									{:else if own.calls.length > 0}
-										{@const label = own.calls.map((call) => call.label).join(" · ")}
-										<span class="size-2 shrink-0 rounded-sm" style:background={colorOf(label)}></span>
-										<span class="truncate">{label}</span>
+									{:else if ownLabel}
+										<span class="truncate">{ownLabel}</span>
 										<span class="shrink-0 tabular-nums text-foreground/80">+{duration(own.durationNs)}</span>
 									{:else}
 										<span>derived</span>

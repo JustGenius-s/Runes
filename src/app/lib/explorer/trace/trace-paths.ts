@@ -148,6 +148,7 @@ export interface PathTreeRow {
 	depth: number;
 	/** Whether this is the last child of its parent. */
 	last: boolean;
+	hasChildren: boolean;
 	/** For each ancestor level above the parent, whether its branch continues below this row. */
 	guides: boolean[];
 }
@@ -168,7 +169,7 @@ export function layoutPathTree(paths: DataPath[]): PathTreeRow[] {
 		const siblings = children.get(parent) ?? [];
 		for (const [index, path] of siblings.entries()) {
 			const last = index === siblings.length - 1;
-			rows.push({ path, depth, last, guides });
+			rows.push({ path, depth, last, hasChildren: children.has(path.id), guides });
 			visit(path.id, depth + 1, depth === 0 ? [] : [...guides, !last]);
 		}
 	}
