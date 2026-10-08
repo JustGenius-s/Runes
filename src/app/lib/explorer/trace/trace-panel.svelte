@@ -105,13 +105,13 @@
 							<!-- Connectors meet at the name line, 14px from the row top. -->
 							{#each row.guides as continues, level (level)}
 								<span class="relative w-4 shrink-0">
-									{#if continues}<span class="absolute inset-y-0 left-1/2 border-l border-muted-foreground/40"></span>{/if}
+									{#if continues}<span class="absolute inset-y-0 left-1/2 border-l border-muted-foreground/60"></span>{/if}
 								</span>
 							{/each}
 							{#if row.depth > 0}
 								<span class="relative w-4 shrink-0">
-									<span class={{ "absolute left-1/2 top-0 border-l border-muted-foreground/40": true, "h-3.5": row.last, "h-full": !row.last }}></span>
-									<span class="absolute left-1/2 top-3.5 w-full border-t border-muted-foreground/40"></span>
+									<span class={{ "absolute left-1/2 top-0 border-l border-muted-foreground/60": true, "h-3.5": row.last, "h-full": !row.last }}></span>
+									<span class="absolute left-1/2 top-3.5 w-full border-t border-muted-foreground/60"></span>
 								</span>
 							{/if}
 							<span class="relative w-4 shrink-0">
@@ -119,7 +119,7 @@
 									class="absolute left-1/2 top-3.5 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-card"
 									style:background={ownLabel ? colorOf(ownLabel) : "var(--muted-foreground)"}
 								></span>
-								{#if row.hasChildren}<span class="absolute bottom-0 left-1/2 top-3.5 border-l border-muted-foreground/40"></span>{/if}
+								{#if row.hasChildren}<span class="absolute bottom-0 left-1/2 top-3.5 border-l border-muted-foreground/60"></span>{/if}
 							</span>
 							<div class="flex min-w-0 flex-1 flex-col gap-0.5 pt-1.5 pl-1">
 								<div class="flex h-4 min-w-0 items-center gap-1.5 font-mono text-xs">
