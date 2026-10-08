@@ -9,7 +9,7 @@
  *    do later assignments. Function declarations that reference tracked
  *    names from an outer scope are tracked as closures.
  * 2. Wraps any call expression that references tracked names (callee or
- *    arguments) in __runes.call(label, roots, () => original, ...). The
+ *    arguments) in __runes.call(label, roots, dependencies, site, () => original, ...). The
  *    thunk preserves 'this' for method calls and lets the runtime record
  *    enter/exit/duration with unwind safety.
  * 3. Wraps derived bindings in __runes.derive(...) to emit value_derive
@@ -88,6 +88,20 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
     return roots;
   }
 
+  /** Returns the directly referenced tracked bindings under node. */
+  function referencedBindings(node: ts.Node): Set<string> {
+    const bindings = new Set<string>();
+    const walk = (current: ts.Node): void => {
+      if (ts.isIdentifier(current)) {
+        const roots = lookup(current.text);
+        if (roots && roots.size > 0) bindings.add(current.text);
+      }
+      ts.forEachChild(current, walk);
+    };
+    walk(node);
+    return bindings;
+  }
+
   function positionOf(node: ts.Node): { line: number; column: number } {
     const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
     return { line: pos.line + 1, column: pos.character + 1 };
@@ -110,10 +124,50 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
     ];
   }
 
+  function siteId(node: ts.Node): string {
+    const pos = positionOf(node);
+    return `${options.fileName}:${pos.line}:${pos.column}`;
+  }
+
   function rootsLiteral(roots: RootSet): ts.Expression {
     return factory.createArrayLiteralExpression(
       [...roots].sort().map((root) => factory.createStringLiteral(root)),
     );
+  }
+
+  function bindingsLiteral(bindings: Set<string>): ts.Expression {
+    return factory.createArrayLiteralExpression(
+      [...bindings].sort().map((binding) => factory.createStringLiteral(binding)),
+    );
+  }
+
+  function thunkFor(expression: ts.Expression): ts.ArrowFunction {
+    return factory.createArrowFunction(
+      undefined,
+      undefined,
+      [],
+      undefined,
+      factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
+      expression,
+    );
+  }
+
+  /** Static call sites inside an initializer; runtime resolves the sites to
+   * the invocations that actually ran (including conditional branches). */
+  function producerSites(node: ts.Node): Set<string> {
+    const sites = new Set<string>();
+    const walk = (current: ts.Node): void => {
+      if (
+        ts.isCallExpression(current) &&
+        !isRuntimeCall(current) &&
+        referencedRoots(current).size > 0
+      ) {
+        sites.add(siteId(current));
+      }
+      ts.forEachChild(current, walk);
+    };
+    walk(node);
+    return sites;
   }
 
   function isRuntimeCall(node: ts.CallExpression): boolean {
@@ -185,6 +239,8 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
         return node;
       }
       const roots = referencedRoots(node.initializer);
+      const dependencies = referencedBindings(node.initializer);
+      const producers = producerSites(node.initializer);
       const initializer =
         ts.visitNode(node.initializer, visitor, ts.isExpression) ?? node.initializer;
       declare(node.name.text, roots);
@@ -201,6 +257,8 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
         factory.createStringLiteral(node.name.text),
         initializer,
         rootsLiteral(roots),
+        bindingsLiteral(dependencies),
+        bindingsLiteral(producers),
         ...positionArgs(node),
       ]);
       return factory.updateVariableDeclaration(
@@ -219,6 +277,8 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
     ) {
       const right = ts.visitNode(node.right, visitor, ts.isExpression) ?? node.right;
       const roots = referencedRoots(right);
+      const dependencies = referencedBindings(node.right);
+      const producers = producerSites(node.right);
       declare(node.left.text, roots);
       const wrapped =
         roots.size > 0
@@ -226,6 +286,8 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
               factory.createStringLiteral(node.left.text),
               right,
               rootsLiteral(roots),
+              bindingsLiteral(dependencies),
+              bindingsLiteral(producers),
               ...positionArgs(node),
             ])
           : right;
@@ -243,19 +305,14 @@ export function instrumentSource(source: string, options: InstrumentOptions): st
       const visited = ts.visitEachChild(node, visitor, context);
       const roots = referencedRoots(visited);
       if (roots.size === 0) return visited;
+      const dependencies = referencedBindings(node);
       const label = node.expression.getText(sourceFile).slice(0, MAX_LABEL_LENGTH);
-      const thunk = factory.createArrowFunction(
-        undefined,
-        undefined,
-        [],
-        undefined,
-        factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-        visited,
-      );
       return runtimeCall("call", [
         factory.createStringLiteral(label),
         rootsLiteral(roots),
-        thunk,
+        bindingsLiteral(dependencies),
+        factory.createStringLiteral(siteId(node)),
+        thunkFor(visited),
         ...positionArgs(node),
       ]);
     }

@@ -17,23 +17,20 @@
 	function describe(event: TraceEvent): string {
 		switch (event.event) {
 			case "root":
-				return "root " + event.binding;
+				return `input ${event.binding} = ${event.value_preview ?? "?"}`;
 			case "call_enter":
-				return "call " + event.label;
+				return `call ${event.label}(${(event.dependencies ?? []).join(", ")})`;
 			case "call_exit":
-				return (
-					"exit " +
-					event.label +
-					" (" +
-					formatNs(event.duration_ns ?? 0) +
-					")"
-				);
+				return event.unwind
+					? `throw from ${event.label}() · ${formatNs(event.duration_ns ?? 0)}`
+					: `return ${event.result_preview ?? "?"} from ${event.label}() · ${formatNs(event.duration_ns ?? 0)}`;
 			case "value_derive":
-				return "derive " + event.label;
+				return `${event.label} = ${event.value_preview ?? "?"}`;
 		}
 	}
 
 	function formatNs(ns: number): string {
+		if (ns === 0) return "< timer resolution";
 		return ns >= 1000 ? (ns / 1000).toFixed(1) + " µs" : ns + " ns";
 	}
 </script>
@@ -59,9 +56,9 @@
 				}}
 			></span>
 			<span>{describe(event)}</span>
-			{#if event.roots && event.roots.length > 0 && event.event !== "root"}
+			{#if event.event === "value_derive" && event.dependencies && event.dependencies.length > 0}
 				<span class="text-muted-foreground">
-					← [{event.roots.join(", ")}]
+					← {event.dependencies.join(", ")}
 				</span>
 			{/if}
 		</div>

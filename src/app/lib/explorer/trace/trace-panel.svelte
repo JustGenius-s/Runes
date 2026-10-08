@@ -22,25 +22,34 @@
 		actionStart = 0,
 		values = {},
 		emptyHint = "Run the scenario to generate trace events.",
-		class: className = "h-72",
+		class: className = "min-h-96",
 	}: Props = $props();
 
 	let view = $state<"flow" | "timeline" | "events">("flow");
 
 	const views = [
 		{ id: "flow", label: "Flow", icon: WorkflowIcon },
-		{ id: "timeline", label: "Timeline", icon: GanttChartIcon },
+		{ id: "timeline", label: "Calls", icon: GanttChartIcon },
 		{ id: "events", label: "Events", icon: ListIcon },
 	] as const;
 
-	// Flow and timeline visualize the latest action; the event list
-	// shows the full buffer.
+	// The explanatory views follow one action. Raw events retain the full buffer.
 	const actionEvents = $derived(events.slice(actionStart));
+	const viewDescription = $derived(
+		view === "flow"
+			? "Latest action · direct dependencies and produced values"
+			: view === "timeline"
+				? "Latest action · function order and measured duration"
+				: "Raw instrumentation events across all actions",
+	);
 </script>
 
-<div class="flex flex-col {className}">
-	<div class="flex items-center justify-between pb-3">
-		<h3 class="text-sm font-medium">Data-Flow Trace</h3>
+<div class="flex min-w-0 flex-col {className}">
+	<div class="flex flex-wrap items-center justify-between gap-2 pb-2.5">
+		<div>
+			<h3 class="text-sm font-medium">Data-Flow Trace</h3>
+			<p class="pt-0.5 text-[10px] text-muted-foreground">{viewDescription}</p>
+		</div>
 		<div class="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
 			{#each views as v (v.id)}
 				<button
@@ -51,6 +60,7 @@
 						"text-muted-foreground hover:text-foreground": view !== v.id,
 					}}
 					onclick={() => (view = v.id)}
+					aria-pressed={view === v.id}
 				>
 					<v.icon class="size-3.5" />
 					{v.label}
@@ -58,13 +68,13 @@
 			{/each}
 		</div>
 	</div>
-	<div class="min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/30">
+	<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-muted/30" class:relative={view === "flow"}>
 		{#if view === "flow"}
-			<TraceFlow events={actionEvents} {values} {emptyHint} />
+			<div class="absolute inset-0"><TraceFlow events={actionEvents} {values} {emptyHint} /></div>
 		{:else if view === "timeline"}
 			<TraceGantt events={actionEvents} {emptyHint} />
 		{:else}
-			<TraceEvents {events} {actionStart} {emptyHint} />
+			<div class="min-h-0 flex-1 overflow-auto"><TraceEvents {events} {actionStart} {emptyHint} /></div>
 		{/if}
 	</div>
 </div>

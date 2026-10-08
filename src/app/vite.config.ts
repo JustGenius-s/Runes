@@ -8,6 +8,20 @@ import { runes } from "../core/index.ts";
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // The dependency scanner parses application modules before Vite plugins run.
+  // Disable discovery so `rune` declarations are first lowered by the Runes
+  // transform instead of being parsed as plain TypeScript by the scanner.
+  optimizeDeps: {
+    noDiscovery: true,
+    include: [
+      "@svar-ui/svelte-gantt",
+      "@xyflow/svelte",
+      "bits-ui",
+      "highlight.js/lib/core",
+      "highlight.js/lib/languages/typescript",
+      "layerchart",
+    ],
+  },
   resolve: {
     alias: {
       $lib: path.join(appRoot, "lib"),

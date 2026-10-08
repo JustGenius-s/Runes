@@ -101,7 +101,7 @@ export const catalog: Category[] = [
 				id: "form-validation",
 				title: "Form Validation",
 				summary:
-					"Inter-field dependencies and the validation surface of a single input.",
+					"Nested vs flat composition and binding vs store updates across a multi-section form.",
 			},
 			{
 				id: "store-compare",

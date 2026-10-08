@@ -12,7 +12,7 @@
 	<AppSidebar />
 	<Sidebar.Inset>
 		<header
-			class="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12"
+			class="flex h-12 shrink-0 items-center gap-2"
 		>
 			<div class="flex items-center gap-2 px-4">
 				<Sidebar.Trigger class="-ms-1" />
@@ -49,7 +49,7 @@
 				</Breadcrumb.Root>
 			</div>
 		</header>
-		<main class="flex flex-1 flex-col gap-4 p-4 pt-0">
+		<main class="flex min-w-0 flex-1 flex-col gap-3 px-4 pb-4 lg:px-5">
 			{#if nav.selected}
 				{#key nav.selectedId}
 					<ExperimentView selection={nav.selected} />

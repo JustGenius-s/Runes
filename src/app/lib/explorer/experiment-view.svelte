@@ -3,6 +3,7 @@
 	import PlayIcon from "@lucide/svelte/icons/play";
 	import WaypointsIcon from "@lucide/svelte/icons/waypoints";
 	import CounterView from "./experiments/counter/counter-view.svelte";
+	import FormValidationView from "./experiments/form-validation/form-validation-view.svelte";
 	import type { Selection } from "./nav.svelte.js";
 
 	let { selection }: { selection: Selection } = $props();
@@ -26,7 +27,7 @@
 	];
 </script>
 
-<div class="mx-auto flex w-full max-w-5xl flex-col gap-6 py-2">
+<div class="flex w-full min-w-0 flex-col gap-4 py-1">
 	<div class="flex flex-col gap-1">
 		<span class="text-xs font-medium text-muted-foreground">
 			{selection.category.title}
@@ -34,22 +35,24 @@
 		<h1 class="text-2xl font-bold tracking-tight">
 			{selection.experiment.title}
 		</h1>
-		<p class="text-muted-foreground">{selection.experiment.summary}</p>
+		<p class="text-sm text-muted-foreground">{selection.experiment.summary}</p>
 	</div>
 
 	{#if selection.experiment.id === "counter"}
 		<CounterView />
+	{:else if selection.experiment.id === "form-validation"}
+		<FormValidationView />
 	{:else}
-	<div class="grid gap-4 md:grid-cols-3">
-		{#each panels as panel (panel.title)}
-			<div
-				class="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center"
-			>
-				<panel.icon class="size-5 text-muted-foreground" />
-				<span class="text-sm font-medium">{panel.title}</span>
-				<span class="text-xs text-muted-foreground">{panel.description}</span>
-			</div>
-		{/each}
-	</div>
+		<div class="grid gap-4 md:grid-cols-3">
+			{#each panels as panel (panel.title)}
+				<div
+					class="flex min-h-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4 text-center"
+				>
+					<panel.icon class="size-5 text-muted-foreground" />
+					<span class="text-sm font-medium">{panel.title}</span>
+					<span class="text-xs text-muted-foreground">{panel.description}</span>
+				</div>
+			{/each}
+		</div>
 	{/if}
 </div>

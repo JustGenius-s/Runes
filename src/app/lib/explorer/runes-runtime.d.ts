@@ -6,8 +6,14 @@ declare module "virtual:runes-runtime" {
 		label?: string;
 		binding?: string;
 		call_id?: number;
+		site_id?: string;
+		parent_call_id?: number;
 		value_id?: number;
 		roots?: string[];
+		dependencies?: string[];
+		producer_call_ids?: number[];
+		value_preview?: string;
+		result_preview?: string;
 		duration_ns?: number;
 		unwind?: boolean;
 		file?: string;

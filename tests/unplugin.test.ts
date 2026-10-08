@@ -50,13 +50,22 @@ describe("unplugin-runes", () => {
     }
   });
 
+  it("records direct dependencies and producing calls", () => {
+    const doubled = events.find((e) => e.event === "value_derive" && e.label === "doubled");
+    expect(doubled).toMatchObject({
+      dependencies: ["count"],
+      value_preview: "42",
+    });
+    expect(doubled?.event === "value_derive" && doubled.producer_call_ids).toHaveLength(1);
+  });
+
   it("pairs call enter/exit events with merged roots", () => {
     const enters = events.filter((e) => e.event === "call_enter");
     const exits = events.filter((e) => e.event === "call_exit");
     expect(enters.length).toBe(exits.length);
 
     const double = enters.find((e) => e.event === "call_enter" && e.label === "double");
-    expect(double).toMatchObject({ roots: ["count"] });
+    expect(double).toMatchObject({ roots: ["count"], dependencies: ["count"] });
 
     // combine(upper, doubled) merges the user and count provenance chains.
     const combine = enters.find((e) => e.event === "call_enter" && e.label === "combine");

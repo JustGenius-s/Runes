@@ -23,7 +23,7 @@ console.log(`Hello, ${normalized}`);
 - 记录调用的持续时间（纳秒）；Promise 结果测量到 settle 为止。
 - 同步异常和 Promise rejection 都会补发 `call.exit`（`unwind=true`），事件始终成对。
 - 间接调用、动态 dispatch 和 async 边界可用 runtime 的 `currentRoots()` / `withRoots(roots, f)` 手动传播追踪上下文。
-- 自动打印事件（`RUNES_PRINT=0` 关闭）；事件为结构化 `TraceEvent` 联合类型，运行结束后一次性写入 JSON（schema v3），供前端绘制。
+- 自动打印事件（`RUNES_PRINT=0` 关闭）；事件为结构化 `TraceEvent` 联合类型，运行结束后一次性写入 JSON（schema v4），供前端绘制。
 - 事件写入进程内 ring buffer（容量 `RUNES_BUFFER_CAPACITY`，默认 4096），满时丢弃并计数（`overflowed_event_count` 可查）。
 - 插件选项 `keyword` 可以把 `rune` 换成其他标识符。
 
@@ -31,17 +31,19 @@ console.log(`Hello, ${normalized}`);
 
 ## Trace 文件格式
 
-`writeTraceFile` 输出一个 JSON 文档（schema v3），事件按时间戳升序，前端可直接消费：
+`writeTraceFile` 输出一个 JSON 文档（schema v4），事件按时间戳升序，前端可直接消费：
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "overflowed_events": 0,
   "events": [
     {
       "event": "root",
       "at_ns": 26083,
+      "value_id": 1,
       "binding": "count",
+      "value_preview": "21",
       "file": "examples/demo.ts",
       "line": 30,
       "column": 1
@@ -50,7 +52,9 @@ console.log(`Hello, ${normalized}`);
       "event": "call_enter",
       "at_ns": 1214041,
       "call_id": 1,
+      "site_id": "examples/demo.ts:31:17",
       "label": "double",
+      "dependencies": ["count"],
       "file": "examples/demo.ts",
       "line": 31,
       "column": 17,
@@ -63,6 +67,7 @@ console.log(`Hello, ${normalized}`);
       "label": "double",
       "roots": ["count"],
       "duration_ns": 20333,
+      "result_preview": "42",
       "unwind": false
     }
   ]
@@ -71,10 +76,13 @@ console.log(`Hello, ${normalized}`);
 
 事件类型：
 
-- `root`：`{ at_ns, binding, file, line, column }`
-- `call_enter`：`{ at_ns, call_id, label, file, line, column, roots }`
-- `call_exit`：`{ at_ns, call_id, label, roots, duration_ns, unwind }` —— `call_id` 与 `call_enter` 配对
-- `value_derive`：`{ at_ns, value_id, label, file, line, column, roots }`
+- `root`：`{ at_ns, value_id, binding, value_preview, file, line, column }`
+- `call_enter`：`{ at_ns, call_id, site_id, parent_call_id?, label, dependencies, file, line, column, roots }`
+- `call_exit`：`{ at_ns, call_id, label, roots, duration_ns, result_preview?, unwind }` —— `call_id` 与 `call_enter` 配对
+- `value_derive`：`{ at_ns, value_id, label, dependencies, producer_call_ids, value_preview, file, line, column, roots }`
+
+`roots` 表示最终来源，适合回答“这个值是否受某个 rune 影响”；`dependencies` 和
+`producer_call_ids` 表示直接因果关系，前端用它们绘制真实的分叉、汇合与调用产出。
 
 ## 快速运行
 
@@ -122,7 +130,7 @@ total score: 282 (active)
   → 文本级降级 rune 根声明（字符串/注释感知扫描器）
   → TypeScript Compiler API 做来源传播 + 调用插桩
   → 宿主 bundler 继续编译（runtime 由虚拟模块注入）
-  → 运行，产出 trace.json（schema v3）
+  → 运行，产出 trace.json（schema v4）
 ```
 
 Runes 不重新实现完整 TS 解析器。降级阶段只把：
@@ -131,7 +139,7 @@ Runes 不重新实现完整 TS 解析器。降级阶段只把：
 rune user = loadUser();
 ```
 
-改写为保持原类型的 `__runes.markRoot("user", loadUser(), file, line, column)` 调用。随后 `src/core/transform.ts` 用 TypeScript Compiler API 遍历 AST：在每个作用域内保守传播 root 集合（初始化器引用被追踪名字的绑定继承其 root 集），把引用了被追踪名字的调用包成 `__runes.call(label, roots, () => original, ...)`（thunk 保留 `this`，runtime 负责记录 enter/exit/duration 并保证 unwind 安全），派生绑定包成 `__runes.derive(...)` 发出 `value_derive` 事件。
+改写为保持原类型的 `__runes.markRoot("user", loadUser(), file, line, column)` 调用。随后 `src/core/transform.ts` 用 TypeScript Compiler API 遍历 AST：在每个作用域内保守传播 root 集合和直接依赖，把引用了被追踪名字的调用包成保留调用位置与原语义的 `__runes.call(...)`（thunk 保留 `this`，runtime 负责记录 enter/exit/duration 并保证 unwind 安全），派生绑定包成 `__runes.derive(...)`，记录直接依赖、产出调用和值预览后发出 `value_derive` 事件。
 
 runtime（`src/core/runtime.ts`）是一个普通 TS 模块，由插件 transpile 后以虚拟模块 `virtual:runes-runtime` 注入模块图——业务代码不需要安装或 import 任何追踪包。
 
@@ -166,7 +174,7 @@ runes.vite({ keyword: "trace" });
 src/core/unplugin.ts  bundler 插件入口（Vite/Rollup/esbuild/webpack，虚拟 runtime 模块）
 src/core/syntax.ts    文本级降级：rune 根声明 → __runes.markRoot(...)
 src/core/transform.ts AST 来源追踪与调用插桩（TypeScript Compiler API）
-src/core/runtime.ts   内联 runtime（schema v3 事件记录，由插件注入）
+src/core/runtime.ts   内联 runtime（schema v4 事件记录，由插件注入）
 src/core/index.ts     公共 API（导出插件）
 src/app/              trace 前端（Svelte + shadcn-svelte）
 examples/demo.ts      统一示例：标量/结构体/闭包/多 root 汇合

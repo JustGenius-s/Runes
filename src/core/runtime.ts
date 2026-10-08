@@ -1,7 +1,7 @@
 /**
  * Runtime module source, served by the bundler plugin as the virtual
  * module virtual:runes-runtime, so users never install or import a
- * runtime package themselves. Events follow trace schema v3, compatible
+ * runtime package themselves. Events follow trace schema v4, compatible
  * with the Runes viewer.
  *
  * The runtime is dual-environment: under Node.js it uses hrtime and can
@@ -15,7 +15,9 @@ interface BaseEvent {
 
 export interface RootEvent extends BaseEvent {
   event: "root";
+  value_id: number;
   binding: string;
+  value_preview: string;
   file: string;
   line: number;
   column: number;
@@ -24,7 +26,10 @@ export interface RootEvent extends BaseEvent {
 export interface CallEnterEvent extends BaseEvent {
   event: "call_enter";
   call_id: number;
+  site_id: string;
   label: string;
+  dependencies: string[];
+  parent_call_id?: number;
   file: string;
   line: number;
   column: number;
@@ -37,6 +42,7 @@ export interface CallExitEvent extends BaseEvent {
   label: string;
   roots: string[];
   duration_ns: number;
+  result_preview?: string;
   unwind: boolean;
 }
 
@@ -44,6 +50,9 @@ export interface ValueDeriveEvent extends BaseEvent {
   event: "value_derive";
   value_id: number;
   label: string;
+  dependencies: string[];
+  producer_call_ids: number[];
+  value_preview: string;
   file: string;
   line: number;
   column: number;
@@ -55,8 +64,7 @@ export type TraceEvent = RootEvent | CallEnterEvent | CallExitEvent | ValueDeriv
 /** Listener invoked synchronously for every recorded event. */
 export type TraceListener = (event: TraceEvent) => void;
 
-const isNode =
-  typeof process !== "undefined" && typeof process.versions?.node === "string";
+const isNode = typeof process !== "undefined" && typeof process.versions?.node === "string";
 
 const nodeStartNs = isNode ? process.hrtime.bigint() : 0n;
 const browserStartMs = isNode ? 0 : performance.now();
@@ -70,7 +78,13 @@ const listeners = new Set<TraceListener>();
 let overflowed = 0;
 let callSequence = 0;
 let valueSequence = 0;
-const contextStack: string[][] = [];
+interface TraceContext {
+  roots: string[];
+  callId?: number;
+}
+
+const contextStack: TraceContext[] = [];
+const completedCallsBySite = new Map<string, number[]>();
 
 function nowNs(): number {
   if (isNode) return Number(process.hrtime.bigint() - nodeStartNs);
@@ -158,12 +172,19 @@ function push(event: TraceEvent): void {
 
 /** Roots of the innermost instrumented call, for manual propagation. */
 export function currentRoots(): string[] {
-  return contextStack.length > 0 ? contextStack[contextStack.length - 1].slice() : [];
+  return contextStack.length > 0 ? contextStack[contextStack.length - 1].roots.slice() : [];
+}
+
+function currentCallId(): number | undefined {
+  for (let i = contextStack.length - 1; i >= 0; i--) {
+    if (contextStack[i].callId !== undefined) return contextStack[i].callId;
+  }
+  return undefined;
 }
 
 /** Runs f with roots as the active trace context. */
 export function withRoots<T>(roots: string[], f: () => T): T {
-  contextStack.push(roots);
+  contextStack.push({ roots });
   try {
     return f();
   } finally {
@@ -173,7 +194,18 @@ export function withRoots<T>(roots: string[], f: () => T): T {
 
 /** Records a root declaration and returns the value unchanged. */
 export function markRoot<T>(name: string, value: T, file: string, line: number, column: number): T {
-  push({ event: "root", at_ns: nowNs(), binding: name, file, line, column });
+  completedCallsBySite.clear();
+  valueSequence++;
+  push({
+    event: "root",
+    at_ns: nowNs(),
+    value_id: valueSequence,
+    binding: name,
+    value_preview: previewValue(value),
+    file,
+    line,
+    column,
+  });
   return value;
 }
 
@@ -182,16 +214,26 @@ export function derive<T>(
   label: string,
   value: T,
   roots: string[],
+  dependencies: string[],
+  producerSites: string[],
   file: string,
   line: number,
   column: number,
 ): T {
+  const producerCallIds: number[] = [];
+  for (const site of producerSites) {
+    producerCallIds.push(...(completedCallsBySite.get(site) ?? []));
+    completedCallsBySite.delete(site);
+  }
   valueSequence++;
   push({
     event: "value_derive",
     at_ns: nowNs(),
     value_id: valueSequence,
     label,
+    dependencies,
+    producer_call_ids: producerCallIds,
+    value_preview: previewValue(value),
     file,
     line,
     column,
@@ -212,6 +254,8 @@ function recordExit(
   roots: string[],
   startedNs: number,
   unwind: boolean,
+  siteId: string,
+  result?: unknown,
 ): void {
   push({
     event: "call_exit",
@@ -220,8 +264,28 @@ function recordExit(
     label,
     roots,
     duration_ns: nowNs() - startedNs,
+    ...(unwind ? {} : { result_preview: previewValue(result) }),
     unwind,
   });
+  const completed = completedCallsBySite.get(siteId) ?? [];
+  completed.push(callId);
+  completedCallsBySite.set(siteId, completed);
+}
+
+function previewValue(value: unknown): string {
+  let text: string;
+  try {
+    if (typeof value === "string") text = JSON.stringify(value);
+    else if (typeof value === "undefined") text = "undefined";
+    else if (typeof value === "bigint") text = `${value}n`;
+    else if (typeof value === "symbol")
+      text = value.description ? `Symbol(${value.description})` : "Symbol()";
+    else if (typeof value === "function") text = `[Function ${value.name || "anonymous"}]`;
+    else text = JSON.stringify(value) ?? Object.prototype.toString.call(value);
+  } catch {
+    text = Object.prototype.toString.call(value);
+  }
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -240,6 +304,8 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 export function call<T>(
   label: string,
   roots: string[],
+  dependencies: string[],
+  siteId: string,
   thunk: () => T,
   file: string,
   line: number,
@@ -248,40 +314,44 @@ export function call<T>(
   callSequence++;
   const callId = callSequence;
   const merged = mergeRoots(roots);
+  const parentCallId = currentCallId();
   push({
     event: "call_enter",
     at_ns: nowNs(),
     call_id: callId,
+    site_id: siteId,
     label,
+    dependencies,
+    ...(parentCallId === undefined ? {} : { parent_call_id: parentCallId }),
     file,
     line,
     column,
     roots: merged,
   });
   const startedNs = nowNs();
-  contextStack.push(merged);
+  contextStack.push({ roots: merged, callId });
   try {
     const result = thunk();
     if (isThenable(result)) {
       return result.then(
         (value) => {
           contextStack.pop();
-          recordExit(callId, label, merged, startedNs, false);
+          recordExit(callId, label, merged, startedNs, false, siteId, value);
           return value;
         },
         (error: unknown) => {
           contextStack.pop();
-          recordExit(callId, label, merged, startedNs, true);
+          recordExit(callId, label, merged, startedNs, true, siteId);
           throw error;
         },
       ) as T;
     }
     contextStack.pop();
-    recordExit(callId, label, merged, startedNs, false);
+    recordExit(callId, label, merged, startedNs, false, siteId, result);
     return result;
   } catch (error) {
     contextStack.pop();
-    recordExit(callId, label, merged, startedNs, true);
+    recordExit(callId, label, merged, startedNs, true, siteId);
     throw error;
   }
 }
@@ -295,6 +365,7 @@ export function takeTraceEvents(): TraceEvent[] {
 export function clearTraceEvents(): void {
   events.length = 0;
   overflowed = 0;
+  completedCallsBySite.clear();
 }
 
 /**
@@ -313,7 +384,7 @@ export function overflowedEventCount(): number {
   return overflowed;
 }
 
-/** Writes the trace document (schema v3) to path. Node.js only. */
+/** Writes the trace document (schema v4) to path. Node.js only. */
 export function writeTraceFile(path?: string): string {
   if (!isNode) {
     throw new Error("writeTraceFile is only available under Node.js");
@@ -321,7 +392,7 @@ export function writeTraceFile(path?: string): string {
   const { writeFileSync } = process.getBuiltinModule("node:fs");
   const target = path ?? process.env.RUNES_OUT ?? "trace.json";
   const sorted = events.slice().sort((a, b) => a.at_ns - b.at_ns);
-  const document = { schema_version: 3, overflowed_events: overflowed, events: sorted };
+  const document = { schema_version: 4, overflowed_events: overflowed, events: sorted };
   writeFileSync(target, JSON.stringify(document));
   return target;
 }
