@@ -8,20 +8,41 @@ import type { TraceEvent } from "../src/core/runtime.ts";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 interface DataPath {
+  id: string;
   name: string;
   value?: string;
   input: boolean;
-  steps: { name: string; calls: { label: string }[]; durationNs: number }[];
+  steps: { id: string; name: string; calls: { label: string }[]; durationNs: number }[];
   otherInputs: string[];
   totalNs: number;
   pending: boolean;
   threw: boolean;
 }
 
+interface PathTreeRow {
+  path: DataPath;
+  depth: number;
+  last: boolean;
+  hasChildren: boolean;
+  descendants: number;
+  guides: boolean[];
+}
+
 type BuildDataPaths = (events: TraceEvent[]) => DataPath[];
 type LayoutPathTree = (
   paths: DataPath[],
-) => { path: DataPath; depth: number; last: boolean; hasChildren: boolean; guides: boolean[] }[];
+  isCollapsed?: (path: DataPath) => boolean,
+) => PathTreeRow[];
+type ConnectorHighlights = (
+  rows: PathTreeRow[],
+  path: DataPath | undefined,
+) => {
+  guides: boolean[];
+  elbowTop: boolean;
+  elbowBottom: boolean;
+  elbowHorizontal: boolean;
+  nodeDown: boolean;
+}[];
 
 const at_ns = 0;
 
@@ -29,6 +50,7 @@ describe("buildDataPaths", () => {
   let server: ViteDevServer;
   let buildDataPaths: BuildDataPaths;
   let layoutPathTree: LayoutPathTree;
+  let connectorHighlights: ConnectorHighlights;
   let counterEvents: TraceEvent[];
 
   beforeAll(async () => {
@@ -40,9 +62,13 @@ describe("buildDataPaths", () => {
     });
     // Loaded through Vite because the app module imports types from the
     // virtual runtime, which only the app's type environment declares.
-    ({ buildDataPaths, layoutPathTree } = (await server.ssrLoadModule(
+    ({ buildDataPaths, layoutPathTree, connectorHighlights } = (await server.ssrLoadModule(
       "/src/app/lib/explorer/trace/trace-paths.ts",
-    )) as { buildDataPaths: BuildDataPaths; layoutPathTree: LayoutPathTree });
+    )) as {
+      buildDataPaths: BuildDataPaths;
+      layoutPathTree: LayoutPathTree;
+      connectorHighlights: ConnectorHighlights;
+    });
     const counter = (await server.ssrLoadModule(
       "/src/app/lib/explorer/experiments/counter/scenario.ts",
     )) as { step: (current: number, delta: 1 | -1) => unknown };
@@ -103,6 +129,37 @@ describe("buildDataPaths", () => {
       ["parity", 2, true, true, "false"],
       ["summary", 3, true, false, "false,false"],
     ]);
+  });
+
+  it("hides the descendants of collapsed values", () => {
+    const rows = layoutPathTree(buildDataPaths(counterEvents), (path) => path.name === "next");
+    expect(rows.map((row) => [row.path.name, row.descendants])).toEqual([
+      ["count", 4],
+      ["next", 3],
+    ]);
+  });
+
+  it("highlights the connectors that lead to the active value", () => {
+    const paths = buildDataPaths(counterEvents);
+    const rows = layoutPathTree(paths);
+    const summary = paths.find((path) => path.name === "summary");
+    const highlights = connectorHighlights(rows, summary);
+    expect(
+      Object.fromEntries(
+        rows.map((row, index) => {
+          const { elbowTop, elbowBottom, elbowHorizontal, nodeDown } = highlights[index];
+          return [row.path.name, [elbowTop, elbowBottom, elbowHorizontal, nodeDown]];
+        }),
+      ),
+    ).toEqual({
+      count: [false, false, false, true],
+      next: [true, false, true, true],
+      // The line to parity passes doubled's elbow without branching into it.
+      doubled: [true, true, false, false],
+      parity: [true, false, true, true],
+      summary: [true, false, true, false],
+    });
+    expect(connectorHighlights(rows, undefined).some((h) => h.elbowTop || h.nodeDown)).toBe(false);
   });
 
   it("sums measured call durations along the path", () => {
